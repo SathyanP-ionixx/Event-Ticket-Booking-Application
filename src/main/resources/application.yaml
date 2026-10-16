@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: Event_Ticket_Booking
+  datasource:
+    url: jdbc:postgresql://localhost:5432/postgres
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+management:
+    endpoints:
+      web:
+        exposure:
+          include: *
+
