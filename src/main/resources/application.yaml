@@ -13,6 +13,8 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.yaml
 management:
     endpoints:
+      health:
+      show-details: always
       web:
         exposure:
           include: *
