@@ -7,15 +7,14 @@ spring:
     password: postgres
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: none
     show-sql: true
   liquibase:
-    change-log: classpath:db/changelog/db.changelog-master.yaml
+    change-log: classpath:/db/changelog/db.changelog-master.yaml
 management:
     endpoints:
       health:
       show-details: always
       web:
         exposure:
-          include: *
-
+          include: health
