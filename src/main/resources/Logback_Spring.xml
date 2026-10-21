@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- picks up spring.application.name, falls back to the default below -->
+    <springProperty scope="context" name="APP_NAME" source="spring.application.name"
+                    defaultValue="event-ticket-booking"/>
+
+    <!-- override with -DLOG_DIR=/var/log/events or env var LOG_DIR -->
+    <property name="LOG_DIR" value="logs"/>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/events-app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/events-app.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+
+        <!-- one JSON object per line; providers are listed in the exact output order -->
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp/>
+                <version/>
+                <message/>
+                <loggerName/>
+                <threadName/>
+                <logLevel/>
+                <logLevelValue/>
+                <globalCustomFields>
+                    <customFields>{"app":"${APP_NAME}"}</customFields>
+                </globalCustomFields>
+                <mdc/>                      <!-- method, path, requestId -->
+                <pattern>                   <!-- trailing "app", exactly as in the expected output -->
+                    <pattern>{"app":"${APP_NAME}"}</pattern>
+                </pattern>
+                <stackTrace/>               <!-- only present when an exception is logged -->
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- file only: no console appender is attached anywhere -->
+    <root level="INFO">
+        <appender-ref ref="FILE"/>
+    </root>
+
+    <logger name="com.ionixx.eventticketbooking" level="INFO"/>
+
+</configuration>

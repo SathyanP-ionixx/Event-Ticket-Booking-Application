@@ -13,7 +13,7 @@ public class EventRequest {
 
     @NotNull(message = "is required")
     @Pattern(regexp = "MUSIC|SPORTS|TECH|THEATRE",
-            flags = Pattern.Flag.CASE_INSENSITIVE,
+             flags = Pattern.Flag.CASE_INSENSITIVE,
              message = "must be one of MUSIC, SPORTS, TECH, THEATRE")
     private String category;
 

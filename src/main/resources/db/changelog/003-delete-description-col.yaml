@@ -1,0 +1,8 @@
+databaseChangeLog:
+  - changeSet:
+      id: 3-remove-description
+      author: IO165
+      changes:
+        - dropColumn:
+            tableName: events
+            columnName: description

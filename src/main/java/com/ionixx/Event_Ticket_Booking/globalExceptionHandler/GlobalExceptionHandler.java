@@ -2,6 +2,8 @@ package com.ionixx.Event_Ticket_Booking.globalExceptionHandler;
 
 
 import com.ionixx.Event_Ticket_Booking.event.dto.ErrorResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,19 +18,22 @@ import java.util.List;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
-        List<ErrorResponse.FieldDetail> details = ex.getBindingResult().getFieldErrors().stream()
-                .map(e -> new ErrorResponse.FieldDetail(toSnake(e.getField()), e.getDefaultMessage()))
-                .sorted(Comparator.comparing(ErrorResponse.FieldDetail::field))
-                .toList();
-        return validationFailed(details);
+        public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+            List<ErrorResponse.FieldDetail> details = ex.getBindingResult().getFieldErrors().stream()
+                    .map(e -> new ErrorResponse.FieldDetail(toSnake(e.getField()), e.getDefaultMessage()))
+                    .sorted(Comparator.comparing(ErrorResponse.FieldDetail::field))
+                    .toList();
+            log.warn("Validation failed fields={}", details.stream().map(ErrorResponse.FieldDetail::field).toList());
+            return validationFailed(details);
     }
 
     @ExceptionHandler(InvalidRequestException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRequest(
             InvalidRequestException ex) {
-
+        log.warn("Invalid request: non-positive or non-numeric id");
         return ResponseEntity
                 .badRequest()
                 .body(new ErrorResponse(
@@ -40,6 +45,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(EventNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(EventNotFoundException ex) {
+        log.warn("Returning 404: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponse.of("NOT_FOUND", ex.getMessage()));
     }
@@ -47,6 +53,7 @@ public class GlobalExceptionHandler {
     // wrong JSON types, e.g. "total_seats": "abc" or malformed body
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex) {
+        log.warn("Unreadable request body: {}", ex.getClass().getSimpleName());
         String message = "Malformed or unreadable request body";
 
         if (ex.getMessage() != null
@@ -61,13 +68,15 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateEventException.class)
     public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateEventException ex) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of("DUPLICATE_EVENT"));
+        log.warn("Returning 409 DUPLICATE_EVENT");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of("Event with same name and date is not allowed"));
     }
 
-    // concurrent insert that slipped past the existsBy check -> unique constraint
+//     concurrent insert that slipped past the existsBy check -> unique constraint
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleIntegrity(DataIntegrityViolationException ex) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of("DUPLICATE_EVENT"));
+        log.warn("Unique constraint hit (concurrent duplicate) -> 409 DUPLICATE_EVENT");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of("Event with same name and date is not allowed"));
     }
 
     private ResponseEntity<ErrorResponse> validationFailed(List<ErrorResponse.FieldDetail> details) {
