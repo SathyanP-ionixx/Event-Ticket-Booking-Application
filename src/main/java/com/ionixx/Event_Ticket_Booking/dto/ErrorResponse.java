@@ -1,4 +1,4 @@
-package com.ionixx.Event_Ticket_Booking.event.dto;
+package com.ionixx.Event_Ticket_Booking.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;

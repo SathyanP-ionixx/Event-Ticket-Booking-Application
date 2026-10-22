@@ -1,0 +1,50 @@
+databaseChangeLog:
+  - changeSet:
+      id: booking-002-create-booking-seats-table
+      author: booking-team
+      changes:
+        - createTable:
+            tableName: booking_seats
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: booking_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_booking_seats_booking
+                    references: bookings(id)
+                    deleteCascade: true
+              - column:
+                  name: event_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+              - column:
+                  name: seat_number
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: varchar(10)
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_booking_seats_booking_id
+            tableName: booking_seats
+            columns:
+              - column:
+                  name: booking_id
+        # Only CONFIRMED bookings occupy seats (PostgreSQL partial unique index)
+        - sql:
+            sql: CREATE UNIQUE INDEX uq_booking_seats_confirmed ON booking_seats (event_id, seat_number) WHERE status = 'CONFIRMED'
+      rollback:
+        - dropTable:
+            tableName: booking_seats

@@ -1,15 +1,14 @@
-package com.ionixx.Event_Ticket_Booking.event.controller;
+package com.ionixx.Event_Ticket_Booking.controller;
 
-import com.ionixx.Event_Ticket_Booking.event.dto.CreatedEvent;
-import com.ionixx.Event_Ticket_Booking.event.dto.EventRequest;
-import com.ionixx.Event_Ticket_Booking.event.dto.EventResponse;
-
-import com.ionixx.Event_Ticket_Booking.event.service.EventService;
+import com.ionixx.Event_Ticket_Booking.dto.EventRequest;
+import com.ionixx.Event_Ticket_Booking.dto.EventResponse;
+import com.ionixx.Event_Ticket_Booking.service.EventService;
+import com.ionixx.Event_Ticket_Booking.filter.RequestIdFilter;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.InvalidRequestException;
 import jakarta.validation.Valid;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,28 +16,27 @@ import org.springframework.web.bind.annotation.*;
 public class EventController {
 
     private final EventService service;
-    // explicit name so "logger_name" in the JSON log is exactly this value
-    private static final Logger log =
-            LoggerFactory.getLogger("com.ionixx.eventticketbooking.controller.EventController");
 
     public EventController(EventService service) {
-
         this.service = service;
     }
 
-    @PostMapping("")
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public EventResponse create(@Valid @RequestBody EventRequest request) {
-        CreatedEvent created = service.create(request);
-        log.info("Event creation response prepared: eventLogId={}, eventId={}",
-                created.eventLogId(), created.response().id());
-        return created.response();
+        EventResponse created = service.create(request);
+        // top-level "eventId" on the request's single log line
+        MDC.put(RequestIdFilter.MDC_EVENT_ID, String.valueOf(created.id()));
+        return created;
     }
 
-
+    // id is read as a String so a bad value gives our own 400 instead of Spring's default
     @GetMapping("/{id}")
     public EventResponse getById(@PathVariable("id") String rawId) {
-        return service.getById(parsePositiveId(rawId));
+        long id = parsePositiveId(rawId);
+        // the requested id, set even if it turns out to be a 404
+        MDC.put(RequestIdFilter.MDC_EVENT_ID, String.valueOf(id));
+        return service.getById(id);
     }
 
     private long parsePositiveId(String raw) {
@@ -52,6 +50,4 @@ public class EventController {
             throw new InvalidRequestException();
         }
     }
-
-
 }

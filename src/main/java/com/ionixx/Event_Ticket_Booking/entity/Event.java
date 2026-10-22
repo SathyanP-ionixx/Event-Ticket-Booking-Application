@@ -1,6 +1,6 @@
-package com.ionixx.Event_Ticket_Booking.event.entity;
+package com.ionixx.Event_Ticket_Booking.entity;
 
-import com.ionixx.Event_Ticket_Booking.event.enums.Category;
+import com.ionixx.Event_Ticket_Booking.enums.Category;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;

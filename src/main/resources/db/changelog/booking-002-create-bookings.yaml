@@ -1,0 +1,70 @@
+databaseChangeLog:
+  - changeSet:
+      id: booking-001-create-bookings-table
+      author: booking-team
+      changes:
+        - createTable:
+            tableName: bookings
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: event_id
+                  type: bigint
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_bookings_event
+                    references: events(id)
+              - column:
+                  name: customer_name
+                  type: varchar(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: customer_email
+                  type: varchar(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: seats
+                  type: int
+                  constraints:
+                    nullable: false
+              - column:
+                  name: price_per_seat
+                  type: numeric(10,2)
+              - column:
+                  name: total_amount
+                  type: numeric(10,2)
+              - column:
+                  name: status
+                  type: varchar(10)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: rejection_reason
+                  type: varchar(255)
+              - column:
+                  name: booked_on
+                  type: date
+                  constraints:
+                    nullable: false
+        - sql:
+            sql: ALTER TABLE bookings ADD CONSTRAINT chk_bookings_status CHECK (status IN ('CONFIRMED','REJECTED'))
+        - createIndex:
+            indexName: idx_bookings_event_id
+            tableName: bookings
+            columns:
+              - column:
+                  name: event_id
+        - sql:
+            sql: CREATE INDEX idx_bookings_event_email ON bookings (event_id, lower(customer_email))
+      rollback:
+        - dropTable:
+            tableName: bookings
+            cascadeConstraints: true

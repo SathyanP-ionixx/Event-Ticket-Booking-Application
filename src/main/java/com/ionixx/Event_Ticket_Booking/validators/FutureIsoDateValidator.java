@@ -1,4 +1,4 @@
-package com.ionixx.Event_Ticket_Booking.event.validators;
+package com.ionixx.Event_Ticket_Booking.validators;
 
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;

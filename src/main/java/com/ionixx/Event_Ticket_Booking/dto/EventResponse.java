@@ -1,9 +1,9 @@
-package com.ionixx.Event_Ticket_Booking.event.dto;
+package com.ionixx.Event_Ticket_Booking.dto;
 
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.ionixx.Event_Ticket_Booking.event.entity.Event;
-import com.ionixx.Event_Ticket_Booking.event.enums.Category;
+import com.ionixx.Event_Ticket_Booking.entity.Event;
+import com.ionixx.Event_Ticket_Booking.enums.Category;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;

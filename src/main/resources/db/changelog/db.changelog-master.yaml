@@ -3,11 +3,9 @@ databaseChangeLog:
       file: 001-create-event-table.yaml
       relativeToChangelogFile: true
   - include:
-      file: 002-add-discription.yaml
+      file: booking-002-create-bookings.yaml
       relativeToChangelogFile: true
   - include:
-      file: 003-delete-description-col.yaml
+      file: booking-003-create-booking-seats.yaml
       relativeToChangelogFile: true
-  - include:
-      file: 004-create-departments-table.yaml
-      relativeToChangelogFile: true
+
