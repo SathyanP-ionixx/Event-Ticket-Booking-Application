@@ -7,6 +7,7 @@ import com.ionixx.Event_Ticket_Booking.entity.Booking;
 import com.ionixx.Event_Ticket_Booking.entity.Event;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.BookingNotFoundException;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.BookingValidationException;
+import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.EventNotFoundException;
 import com.ionixx.Event_Ticket_Booking.repository.BookingRepository;
 import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
@@ -48,7 +49,7 @@ public class BookingService {
 
         // 2. event existence (404) + seat range (400); row lock serializes concurrent bookings
         Event event = eventRepository.findByIdForUpdate(req.getEventId())
-                .orElseThrow(() -> new BookingNotFoundException("Event not found with id " + req.getEventId()));
+                .orElseThrow(() -> new EventNotFoundException(req.getEventId()));
 
         List<Integer> seatNumbers = req.getSeatNumbers().stream().sorted().toList();
         for (Integer s : seatNumbers) {

@@ -1,0 +1,17 @@
+# Used by the integration tests via @ActiveProfiles("test").
+# Overrides only what differs from src/main/resources/application.yaml.
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop   # schema comes from the entities, not Liquibase
+    show-sql: false
+  liquibase:
+    enabled: false
+logging:
+  file:
+    name: build/test-logs/application.log

@@ -31,37 +31,49 @@ public class GlobalExceptionHandler {
     private static final String DUPLICATE_MESSAGE = "Event with same name and date is not allowed";
     private static final String UNIQUE_VIOLATION_SQL_STATE = "23505"; // PostgreSQL, H2, ...
 
+    // ---- 400 VALIDATION_FAILED (events: bean validation) ----
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex,
-                                                          HttpServletRequest request) {
+    public ResponseEntity<ErrorResponse> handleBeanValidation(MethodArgumentNotValidException ex,
+                                                              HttpServletRequest request) {
         List<ErrorResponse.FieldDetail> details = ex.getBindingResult().getFieldErrors().stream()
                 .map(e -> new ErrorResponse.FieldDetail(toSnake(e.getField()), e.getDefaultMessage()))
                 .sorted(Comparator.comparing(ErrorResponse.FieldDetail::field))
                 .toList();
-        RequestIdFilter.recordError(request, "Validation failed: " + details.stream()
-                .map(d -> d.field() + " " + d.message())
-                .collect(Collectors.joining("; ")));
+        RequestIdFilter.recordError(request, "Validation failed: " + describe(details));
         return validationFailed(details);
     }
 
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex) {
+
+        ErrorResponse response = ErrorResponse.of(
+                "INVALID_REQUEST",
+                "Booking ID must be a positive integer"
+        );
+
+        return ResponseEntity.badRequest().body(response);
+    }
+
+    // ---- 400 VALIDATION_FAILED (bookings: BookingValidator / seat range) ----
+    @ExceptionHandler(BookingValidationException.class)
+    public ResponseEntity<ErrorResponse> handleBookingValidation(BookingValidationException ex,
+                                                                 HttpServletRequest request) {
+        RequestIdFilter.recordError(request, "Validation failed: " + describe(ex.getDetails()));
+        return validationFailed(ex.getDetails());
+    }
+
+    // ---- 400 INVALID_REQUEST (bad path id) ----
     @ExceptionHandler(InvalidRequestException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRequest(InvalidRequestException ex,
                                                               HttpServletRequest request) {
         String message = "ID must be a positive number";
         RequestIdFilter.recordError(request, message);
-        return ResponseEntity.badRequest()
-                .body(new ErrorResponse("INVALID_REQUEST", message, List.of()));
+        return ResponseEntity.badRequest().body(ErrorResponse.of("INVALID_REQUEST", message));
     }
 
-    @ExceptionHandler(EventNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(EventNotFoundException ex,
-                                                        HttpServletRequest request) {
-        RequestIdFilter.recordError(request, ex.getMessage());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ErrorResponse.of("NOT_FOUND", ex.getMessage()));
-    }
-
-    // wrong JSON types, e.g. "total_seats": "abc", or a missing / malformed body
+    // ---- 400 INVALID_REQUEST (malformed / empty JSON, wrong JSON types) ----
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex,
                                                           HttpServletRequest request) {
@@ -71,9 +83,25 @@ public class GlobalExceptionHandler {
             message = "Request body is required";
         }
         RequestIdFilter.recordError(request, message);
-        return validationFailed(List.of(new ErrorResponse.FieldDetail("body", message)));
+        return ResponseEntity.badRequest().body(ErrorResponse.of("INVALID_REQUEST", message));
     }
 
+    // ---- 404 NOT_FOUND ----
+    @ExceptionHandler(EventNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEventNotFound(EventNotFoundException ex,
+                                                             HttpServletRequest request) {
+        RequestIdFilter.recordError(request, ex.getMessage());
+        return notFound(ex.getMessage());
+    }
+
+    @ExceptionHandler(BookingNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleBookingNotFound(BookingNotFoundException ex,
+                                                               HttpServletRequest request) {
+        RequestIdFilter.recordError(request, ex.getMessage());
+        return notFound(ex.getMessage());
+    }
+
+    // ---- 409 DUPLICATE_EVENT ----
     @ExceptionHandler(DuplicateEventException.class)
     public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateEventException ex,
                                                          HttpServletRequest request) {
@@ -98,7 +126,7 @@ public class GlobalExceptionHandler {
 
     /**
      * Everything else: framework exceptions (404 route, 405, 415, ...) keep their own status,
-     * anything unexpected becomes a generic 500 and is logged at ERROR with its stack trace.
+     * anything unexpected becomes a generic 500 INTERNAL_ERROR and is logged at ERROR with its stack trace.
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleAny(Exception ex, HttpServletRequest request) {
@@ -117,6 +145,8 @@ public class GlobalExceptionHandler {
         return internalError(ex, request);
     }
 
+    // ---- helpers ----
+
     private ResponseEntity<ErrorResponse> internalError(Exception ex, HttpServletRequest request) {
         RequestIdFilter.recordError(request,
                 ex.getClass().getSimpleName() + (ex.getMessage() != null ? ": " + ex.getMessage() : ""), ex);
@@ -124,13 +154,24 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of("INTERNAL_ERROR", "An unexpected error occurred"));
     }
 
+    private ResponseEntity<ErrorResponse> notFound(String message) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorResponse.of("NOT_FOUND", message));
+    }
+
     private ResponseEntity<ErrorResponse> duplicateResponse() {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorResponse.of(DUPLICATE_MESSAGE));
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of("DUPLICATE_EVENT", DUPLICATE_MESSAGE));
     }
 
     private ResponseEntity<ErrorResponse> validationFailed(List<ErrorResponse.FieldDetail> details) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse("VALIDATION_FAILED", "Request validation failed", details));
+    }
+
+    private String describe(List<ErrorResponse.FieldDetail> details) {
+        return details.stream()
+                .map(d -> d.field() + " " + d.message())
+                .collect(Collectors.joining("; "));
     }
 
     private boolean isUniqueViolation(Throwable throwable) {
@@ -145,28 +186,4 @@ public class GlobalExceptionHandler {
     private String toSnake(String camel) {
         return camel.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase();
     }
-
-    @ExceptionHandler(BookingValidationException.class)
-    public ResponseEntity<Map<String, String>> handleValidation(BookingValidationException ex) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("field", ex.getField(), "message", ex.getMessage()));
-    }
-
-    @ExceptionHandler(BookingNotFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNotFound(BookingNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("message", ex.getMessage()));
-    }
-
-    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<Map<String, String>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Map.of("field", ex.getName(), "message", ex.getName() + " must be a number"));
-    }
-
-//    @ExceptionHandler(HttpMessageNotReadableException.class)
-//    public ResponseEntity<Map<String, String>> handleUnreadable(HttpMessageNotReadableException ex) {
-//        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-//                .body(Map.of("field", "body", "message", "Malformed or invalid request body"));
-//    }
 }
