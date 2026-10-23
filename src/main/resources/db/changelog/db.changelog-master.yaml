@@ -2,3 +2,10 @@ databaseChangeLog:
   - include:
       file: 001-create-event-table.yaml
       relativeToChangelogFile: true
+  - include:
+      file: booking-002-create-bookings.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: booking-003-create-booking-seats.yaml
+      relativeToChangelogFile: true
+

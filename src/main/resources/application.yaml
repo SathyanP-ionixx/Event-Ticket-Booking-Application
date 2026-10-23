@@ -7,7 +7,7 @@ spring:
     password: postgres
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: validate
     show-sql: true
   liquibase:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
@@ -18,3 +18,18 @@ management:
       web:
         exposure:
           include: health
+logging:
+  file:
+    name: logs/application.log
+
+  # JSON, one object per line, in the "logstash" layout built into Spring Boot
+  # (@timestamp, @version, message, logger_name, thread_name, level, level_value, then MDC fields)
+  structured:
+    json:
+      exclude: thread_name,level_value
+    format:
+      file: logstash
+
+  # file only: switch the console appender off (property needs Spring Boot 3.5+, ignored on older versions)
+  threshold:
+    console:off
