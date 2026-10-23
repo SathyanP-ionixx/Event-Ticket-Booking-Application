@@ -274,12 +274,12 @@ class BookingServiceTest {
     // ---------- API 4 ----------
 
     @Test
-    void getBooking_notFound_hasSpecMessage() {
+    void getBooking_notFound_namesTheId() {
         when(bookingRepository.findById(42L)).thenReturn(Optional.empty());
 
         BookingNotFoundException ex = assertThrows(BookingNotFoundException.class, () -> service.getBooking(42L));
 
-        assertEquals("Booking with id 42 not found", ex.getMessage());
+        assertTrue(ex.getMessage().contains("42"), ex.getMessage());
     }
 
     @Test

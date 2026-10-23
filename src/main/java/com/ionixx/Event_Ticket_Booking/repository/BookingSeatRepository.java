@@ -20,4 +20,12 @@ public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> 
            """)
     List<Integer> findConfirmedSeatNumbers(@Param("eventId") Long eventId,
                                            @Param("seats") Collection<Integer> seats);
+
+    @Query("""
+           select s.seatNumber from BookingSeat s
+           where s.eventId = :eventId
+             and s.status = 'CONFIRMED'
+           order by s.seatNumber
+           """)
+    List<Integer> findAllConfirmedSeatNumbers(@Param("eventId") Long eventId);
 }

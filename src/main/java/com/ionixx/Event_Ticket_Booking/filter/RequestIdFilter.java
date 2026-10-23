@@ -27,7 +27,8 @@ import java.util.regex.Pattern;
  *       INFO for success, WARN for 4xx, ERROR (with stack trace) for 5xx.</li>
  * </ul>
  *
- * Other layers add context by putting {@link #MDC_EVENT_ID} in the MDC, or report the error text
+ * Other layers add context by putting {@link #MDC_EVENT_ID}, {@link #MDC_BOOKING_ID} or
+ * {@link #MDC_BOOKING_STATUS} in the MDC, or report the error text
  * with {@link #recordError}; this filter turns all of it into the single final line.
  */
 @Component
@@ -45,6 +46,8 @@ public class RequestIdFilter extends OncePerRequestFilter {
     public static final String MDC_METHOD = "method";
     public static final String MDC_PATH = "path";
     public static final String MDC_EVENT_ID = "eventId";
+    public static final String MDC_BOOKING_ID = "bookingId";
+    public static final String MDC_BOOKING_STATUS = "bookingStatus";
 
     private static final String ERROR_MESSAGE_ATTR = RequestIdFilter.class.getName() + ".errorMessage";
     private static final String ERROR_CAUSE_ATTR = RequestIdFilter.class.getName() + ".errorCause";

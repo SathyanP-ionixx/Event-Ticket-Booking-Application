@@ -6,17 +6,21 @@ import com.ionixx.Event_Ticket_Booking.filter.RequestIdFilter;
 import com.ionixx.Event_Ticket_Booking.repository.BookingRepository;
 import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -24,14 +28,32 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 /**
- * Boots the full application against in-memory H2 (profile "test") and drives it through MockMvc.
- * MockMvc is built by hand (webAppContextSetup) so RequestIdFilter is part of every request,
- * exactly as in production, and no Boot test-autoconfigure package is needed.
+ * Boots the full application against a REAL PostgreSQL started by Testcontainers and drives it
+ * through MockMvc.
+ *
+ * <ul>
+ *   <li>The schema is created by your Liquibase changelog and checked by Hibernate
+ *       ({@code ddl-auto: validate}), exactly as in production, so a changelog that drifts from the
+ *       entities fails these tests.</li>
+ *   <li>MockMvc is built by hand (webAppContextSetup) so RequestIdFilter is part of every request.</li>
+ *   <li>If Docker is not running the whole class is skipped (not failed), with a message saying why.</li>
+ * </ul>
  */
+@Testcontainers
 @SpringBootTest
-@ActiveProfiles("test")
-abstract class AbstractApiIT {
+public abstract class AbstractApiIT {
+
+
+    /** Points the application at the container; overrides the localhost URL in application.yaml. */
+    @DynamicPropertySource
+    static void datasource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", PostgresContainer.INSTANCE::getJdbcUrl);
+        registry.add("spring.datasource.username", PostgresContainer.INSTANCE::getUsername);
+        registry.add("spring.datasource.password", PostgresContainer.INSTANCE::getPassword);
+    }
 
     /** Use as a value in {@link #eventBody} / {@link #bookingBody} to send an explicit JSON null. */
     protected static final Object JSON_NULL = new Object() {
@@ -43,6 +65,7 @@ abstract class AbstractApiIT {
     @Autowired protected EventRepository eventRepository;
     @Autowired protected BookingRepository bookingRepository;
     @Autowired protected BookingSeatRepository bookingSeatRepository;
+    @Autowired protected JdbcTemplate jdbc;
 
     protected MockMvc mvc;
 

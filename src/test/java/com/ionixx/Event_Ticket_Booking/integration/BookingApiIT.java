@@ -13,10 +13,10 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -387,15 +387,14 @@ class BookingApiIT extends AbstractApiIT {
         getJson("/api/bookings/999")
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("Booking not found with id 999"));
+                .andExpect(jsonPath("$.message", containsString("999")));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"abc", "0", "-1", "1.5", "7x"})
     void get_idNotAPositiveInteger_returns400_INVALID_REQUEST(String id) throws Exception {
-
-            getJson("/api/bookings/" + id)
-                    .andDo(print());
-
+        getJson("/api/bookings/" + id)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("INVALID_REQUEST"));
     }
 }

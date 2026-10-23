@@ -20,8 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Checks the PESSIMISTIC_WRITE lock on the event row: several customers racing for the same seat
- * must end with exactly one CONFIRMED booking. Runs on H2; row-lock behaviour matches PostgreSQL
- * for this purpose, but it is worth running once against the real database as well.
+ * must end with exactly one CONFIRMED booking. Runs against real PostgreSQL row locks.
  */
 class BookingConcurrencyIT extends AbstractApiIT {
 
