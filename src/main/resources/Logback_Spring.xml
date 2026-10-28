@@ -9,6 +9,9 @@
     <appender name="JSON"
               class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <fieldNames>
+                <version>[ignore]</version>
+            </fieldNames>
             <includeMdcKeyName>requestId</includeMdcKeyName>
             <includeMdcKeyName>method</includeMdcKeyName>
             <includeMdcKeyName>path</includeMdcKeyName>
@@ -16,7 +19,7 @@
         </encoder>
     </appender>
     <root level="INFO">
-        <appender-ref ref="JSON_FILE"/>
+        <appender-ref ref="JSON"/>
     </root>
 
 </configuration>

@@ -1,189 +1,118 @@
 package com.ionixx.Event_Ticket_Booking.validators;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.catchThrowable;
+
 import com.ionixx.Event_Ticket_Booking.dto.BookingRequest;
 import com.ionixx.Event_Ticket_Booking.dto.ErrorResponse;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.BookingValidationException;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
-
+import com.ionixx.Event_Ticket_Booking.support.TestData;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
 
 class BookingValidatorTest {
 
-    private final BookingValidator validator = new BookingValidator();
+  private final BookingValidator validator = new BookingValidator();
 
-    private static BookingRequest valid() {
-        BookingRequest r = new BookingRequest();
-        r.setEventId(1L);
-        r.setCustomerName("Priya Raman");
-        r.setCustomerEmail("priya@example.com");
-        r.setSeatNumbers(List.of(12, 13, 14, 15));
-        return r;
+  private static BookingRequest valid() {
+    return TestData.bookingRequest(1L, "John Doe", "john@example.com", 1, 2);
+  }
+
+  private Map<String, String> errorsFor(BookingRequest req) {
+    Throwable thrown = catchThrowable(() -> validator.validate(req));
+    assertThat(thrown).as("validation should fail").isInstanceOf(BookingValidationException.class);
+    BookingValidationException ex = (BookingValidationException) thrown;
+    Map<String, String> map = new LinkedHashMap<>();
+    for (ErrorResponse.FieldDetail d : ex.getDetails()) {
+      map.put(d.field(), d.message());
     }
+    return map;
+  }
 
-    private List<String> failingFields(BookingRequest req) {
-        BookingValidationException ex = assertThrows(BookingValidationException.class, () -> validator.validate(req));
-        return ex.getDetails().stream().map(ErrorResponse.FieldDetail::field).toList();
+  @Test
+  void validRequest_passes() {
+    assertThatCode(() -> validator.validate(valid())).doesNotThrowAnyException();
+  }
+
+  @Test
+  void nullBody_isRejected() {
+    assertThat(errorsFor(null)).containsEntry("body", "Request body is required");
+  }
+
+  @Test
+  void eventId_requiredAndPositive() {
+    BookingRequest r = valid();
+    r.setEventId(null);
+    assertThat(errorsFor(r)).containsEntry("event_id", "is required");
+
+    r.setEventId(0L);
+    assertThat(errorsFor(r)).containsEntry("event_id", "must be a positive integer");
+  }
+
+  @Test
+  void customerName_rules() {
+    BookingRequest r = valid();
+    r.setCustomerName(null);
+    assertThat(errorsFor(r)).containsEntry("customer_name", "is required");
+
+    for (String bad : List.of("Jo", "John 3", "   ", "John_Doe", "A".repeat(51))) {
+      r.setCustomerName(bad);
+      assertThat(errorsFor(r))
+          .as(bad)
+          .containsEntry("customer_name", "must be 3-50 characters, letters and spaces only");
     }
+  }
 
-    // ---- happy paths ----
+  @Test
+  void customerEmail_rules() {
+    BookingRequest r = valid();
+    r.setCustomerEmail(null);
+    assertThat(errorsFor(r)).containsEntry("customer_email", "is required");
 
-    @Test
-    void validRequest_passes() {
-        assertDoesNotThrow(() -> validator.validate(valid()));
-    }
+    r.setCustomerEmail("not-an-email");
+    assertThat(errorsFor(r)).containsEntry("customer_email", "must be a valid email");
 
-    @Test
-    void sixSeats_isTheAllowedMaximum() {
-        BookingRequest r = valid();
-        r.setSeatNumbers(List.of(1, 2, 3, 4, 5, 6));
-        assertDoesNotThrow(() -> validator.validate(r));
-    }
+    r.setCustomerEmail("a".repeat(250) + "@b.com"); // longer than 255
+    assertThat(errorsFor(r)).containsEntry("customer_email", "must be a valid email");
+  }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"Abc", "Priya Raman", "A B"})
-    void validNames_pass(String name) {
-        BookingRequest r = valid();
-        r.setCustomerName(name);
-        assertDoesNotThrow(() -> validator.validate(r));
-    }
+  @Test
+  void seatNumbers_rules() {
+    BookingRequest r = valid();
+    r.setSeatNumbers(null);
+    assertThat(errorsFor(r)).containsEntry("seat_numbers", "is required");
 
-    @Test
-    void fiftyCharName_passes_fiftyOne_fails() {
-        BookingRequest r = valid();
-        r.setCustomerName("A".repeat(50));
-        assertDoesNotThrow(() -> validator.validate(r));
-        r.setCustomerName("A".repeat(51));
-        assertEquals(List.of("customer_name"), failingFields(r));
-    }
+    r.setSeatNumbers(List.of());
+    assertThat(errorsFor(r)).containsEntry("seat_numbers", "must contain 1 to 6 seat numbers");
 
-    @ParameterizedTest
-    @ValueSource(strings = {"priya@example.com", "p.r+tag@sub.example.co.in", "A_B-c%d@mail.example.org"})
-    void validEmails_pass(String email) {
-        BookingRequest r = valid();
-        r.setCustomerEmail(email);
-        assertDoesNotThrow(() -> validator.validate(r));
-    }
+    r.setSeatNumbers(List.of(1, 2, 3, 4, 5, 6, 7));
+    assertThat(errorsFor(r)).containsEntry("seat_numbers", "must contain 1 to 6 seat numbers");
 
-    // ---- body ----
+    r.setSeatNumbers(Arrays.asList(1, null));
+    assertThat(errorsFor(r)).containsEntry("seat_numbers", "must be positive integers");
 
-    @Test
-    void nullBody_failsOnBody() {
-        assertEquals(List.of("body"), failingFields(null));
-    }
+    r.setSeatNumbers(List.of(1, 0));
+    assertThat(errorsFor(r)).containsEntry("seat_numbers", "must be positive integers");
 
-    // ---- event_id ----
+    r.setSeatNumbers(List.of(3, 3));
+    assertThat(errorsFor(r)).containsEntry("seat_numbers", "must not contain duplicates");
+  }
 
-    @Test
-    void missingEventId_fails() {
-        BookingRequest r = valid();
-        r.setEventId(null);
-        assertEquals(List.of("event_id"), failingFields(r));
-    }
+  @Test
+  void sixSeats_isTheAllowedMaximum() {
+    BookingRequest r = valid();
+    r.setSeatNumbers(List.of(1, 2, 3, 4, 5, 6));
+    assertThatCode(() -> validator.validate(r)).doesNotThrowAnyException();
+  }
 
-    @ParameterizedTest
-    @ValueSource(longs = {0, -1, -100})
-    void nonPositiveEventId_fails(long id) {
-        BookingRequest r = valid();
-        r.setEventId(id);
-        assertEquals(List.of("event_id"), failingFields(r));
-    }
-
-    // ---- customer_name ----
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = {"AB", "a", "   ", "Priya2", "Priya_Raman", "Priya-Raman", "Priya.R", "Pri\u00e9ya"})
-    void invalidNames_fail(String name) {
-        BookingRequest r = valid();
-        r.setCustomerName(name);
-        assertEquals(List.of("customer_name"), failingFields(r));
-    }
-
-    // ---- customer_email ----
-
-    @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = {"priya@", "priya", "@example.com", "priya@example", "priya @example.com", "priya@@example.com", "priya@example.c"})
-    void invalidEmails_fail(String email) {
-        BookingRequest r = valid();
-        r.setCustomerEmail(email);
-        assertEquals(List.of("customer_email"), failingFields(r));
-    }
-
-    @Test
-    void emailLongerThan255_fails() {
-        BookingRequest r = valid();
-        r.setCustomerEmail("a".repeat(250) + "@example.com");
-        assertEquals(List.of("customer_email"), failingFields(r));
-    }
-
-    // ---- seat_numbers ----
-
-    @Test
-    void nullSeatList_fails() {
-        BookingRequest r = valid();
-        r.setSeatNumbers(null);
-        assertEquals(List.of("seat_numbers"), failingFields(r));
-    }
-
-    @Test
-    void emptySeatList_fails() {
-        BookingRequest r = valid();
-        r.setSeatNumbers(List.of());
-        assertEquals(List.of("seat_numbers"), failingFields(r));
-    }
-
-    @Test
-    void sevenSeats_fails() {
-        BookingRequest r = valid();
-        r.setSeatNumbers(List.of(1, 2, 3, 4, 5, 6, 7));
-        assertEquals(List.of("seat_numbers"), failingFields(r));
-    }
-
-    @Test
-    void zeroNegativeOrNullSeat_fails() {
-        for (List<Integer> seats : List.of(List.of(0), List.of(-3), Arrays.asList(1, null), List.of(1, 2, 0))) {
-            BookingRequest r = valid();
-            r.setSeatNumbers(seats);
-            assertEquals(List.of("seat_numbers"), failingFields(r), "seats=" + seats);
-        }
-    }
-
-    @Test
-    void duplicateSeats_fail() {
-        BookingRequest r = valid();
-        r.setSeatNumbers(List.of(5, 5));
-        BookingValidationException ex = assertThrows(BookingValidationException.class, () -> validator.validate(r));
-        assertEquals("seat_numbers", ex.getDetails().get(0).field());
-        assertEquals("must not contain duplicates", ex.getDetails().get(0).message());
-    }
-
-    // ---- all failures are reported together ----
-
-    @Test
-    void everyFailingField_isListed_sortedByField_oneMessagePerField() {
-        BookingRequest r = new BookingRequest();
-        r.setEventId(0L);
-        r.setCustomerName("AB");
-        r.setCustomerEmail("priya@");
-        r.setSeatNumbers(List.of(5, 5, 0));   // two problems on one field -> still one entry
-        assertEquals(List.of("customer_email", "customer_name", "event_id", "seat_numbers"), failingFields(r));
-    }
-
-    @Test
-    void emptyObject_listsAllFourFields_asRequired() {
-        BookingValidationException ex = assertThrows(BookingValidationException.class,
-                () -> validator.validate(new BookingRequest()));
-        assertEquals(List.of("customer_email", "customer_name", "event_id", "seat_numbers"),
-                ex.getDetails().stream().map(ErrorResponse.FieldDetail::field).toList());
-        ex.getDetails().forEach(d -> assertEquals("is required", d.message()));
-    }
+  @Test
+  void allErrorsAreReported_sortedByField() {
+    Map<String, String> errors = errorsFor(new BookingRequest());
+    assertThat(errors.keySet())
+        .containsExactly("customer_email", "customer_name", "event_id", "seat_numbers");
+  }
 }

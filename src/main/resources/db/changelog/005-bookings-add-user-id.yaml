@@ -1,0 +1,28 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-bookings-add-user-id
+      author: auth-team
+      changes:
+        # nullable: bookings made before login existed have no owner
+        - addColumn:
+            tableName: bookings
+            columns:
+              - column:
+                  name: user_id
+                  type: bigint
+        - addForeignKeyConstraint:
+            baseTableName: bookings
+            baseColumnNames: user_id
+            constraintName: fk_bookings_user
+            referencedTableName: users
+            referencedColumnNames: id
+        - createIndex:
+            indexName: idx_bookings_user_id
+            tableName: bookings
+            columns:
+              - column:
+                  name: user_id
+      rollback:
+        - dropColumn:
+            tableName: bookings
+            columnName: user_id

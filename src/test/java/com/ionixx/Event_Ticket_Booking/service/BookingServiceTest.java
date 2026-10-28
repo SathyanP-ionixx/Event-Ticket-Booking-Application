@@ -1,306 +1,296 @@
 package com.ionixx.Event_Ticket_Booking.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
 import com.ionixx.Event_Ticket_Booking.dto.BookingRequest;
 import com.ionixx.Event_Ticket_Booking.dto.BookingResponse;
 import com.ionixx.Event_Ticket_Booking.entity.Booking;
-import com.ionixx.Event_Ticket_Booking.entity.BookingSeat;
 import com.ionixx.Event_Ticket_Booking.entity.Event;
+import com.ionixx.Event_Ticket_Booking.enums.Role;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.BookingNotFoundException;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.BookingValidationException;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.EventNotFoundException;
 import com.ionixx.Event_Ticket_Booking.repository.BookingRepository;
 import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
+import com.ionixx.Event_Ticket_Booking.security.AuthUser;
+import com.ionixx.Event_Ticket_Booking.support.TestData;
 import com.ionixx.Event_Ticket_Booking.validators.BookingValidator;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
-
-import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.IntStream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
-
-@ExtendWith(MockitoExtension.class)
 class BookingServiceTest {
 
-    private static final String EMAIL = "priya@example.com";
-    private static final String MAX_REASON = "Customer already holds the maximum seats for this event";
+  private static final long EVENT_ID = 1L;
+  private static final long USER_ID = 9L;
+  private static final String EMAIL = "john@example.com";
 
-    @Mock BookingRepository bookingRepository;
-    @Mock BookingSeatRepository bookingSeatRepository;
-    @Mock EventRepository eventRepository;
-    @Mock BookingValidator validator;
-    @Captor ArgumentCaptor<Booking> bookingCaptor;
-    @Captor ArgumentCaptor<Collection<Integer>> seatsCaptor;
+  private final BookingRepository bookingRepository = mock(BookingRepository.class);
+  private final BookingSeatRepository seatRepository = mock(BookingSeatRepository.class);
+  private final EventRepository eventRepository = mock(EventRepository.class);
+  private final BookingService service =
+      new BookingService(
+          bookingRepository,
+          seatRepository,
+          eventRepository,
+          new BookingValidator(),
+          new PriceCalculator());
 
-    private BookingService service;
+  @BeforeEach
+  void defaultStubs() {
+    when(bookingRepository.save(any(Booking.class)))
+        .thenAnswer(
+            inv -> {
+              Booking b = inv.getArgument(0);
+              ReflectionTestUtils.setField(b, "id", 100L);
+              return b;
+            });
+    when(seatRepository.findConfirmedSeatNumbers(anyLong(), anyCollection())).thenReturn(List.of());
+    when(bookingRepository.countConfirmedSeatsForCustomer(anyLong(), anyString())).thenReturn(0L);
+  }
 
-    @BeforeEach
-    void setUp() {
-        service = new BookingService(bookingRepository, bookingSeatRepository, eventRepository,
-                validator, new PriceCalculator());
-        // "save" returns what it was given (id stays null; irrelevant for these tests)
-        lenient().when(bookingRepository.save(any(Booking.class))).thenAnswer(inv -> inv.getArgument(0));
-    }
+  private void givenEvent(Event event) {
+    when(eventRepository.findByIdForUpdate(EVENT_ID)).thenReturn(Optional.of(event));
+  }
 
-    // ---------- helpers ----------
+  private static Event futureEvent(int daysAhead) {
+    return TestData.event(EVENT_ID, 100, LocalDate.now().plusDays(daysAhead), "100.00", 2L);
+  }
 
-    private Event stubEvent(int totalSeats, String basePrice, LocalDate date) {
-        Event e = new Event();
-        ReflectionTestUtils.setField(e, "id", 1L);
-        e.setName("Chennai Jazz Night");
-        e.setTotalSeats(totalSeats);
-        e.setBasePrice(new BigDecimal(basePrice));
-        e.setEventDate(date);
-        when(eventRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(e));
-        return e;
-    }
+  // ------------------------------------------------------------------ createBooking
 
-    private BookingRequest request(String email, Integer... seats) {
-        BookingRequest r = new BookingRequest();
-        r.setEventId(1L);
-        r.setCustomerName("Priya Raman");
-        r.setCustomerEmail(email);
-        r.setSeatNumbers(Arrays.asList(seats));
-        return r;
-    }
+  @Test
+  void confirmedBooking_isPriced_sorted_andOwnedByTheCaller() {
+    givenEvent(futureEvent(45));
 
-    private Booking savedBooking() {
-        verify(bookingRepository).save(bookingCaptor.capture());
-        return bookingCaptor.getValue();
-    }
+    BookingResponse res =
+        service.createBooking(
+            TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 4, 2, 1, 3), USER_ID);
 
-    // ---------- step 1/2: validation and lookups ----------
+    assertThat(res.getStatus()).isEqualTo("CONFIRMED");
+    assertThat(res.getSeatNumbers()).containsExactly(1, 2, 3, 4);
+    assertThat(res.getSeats()).isEqualTo(4);
+    assertThat(res.getPricePerSeat()).isEqualByComparingTo("85.50"); // early bird + group
+    assertThat(res.getTotalAmount()).isEqualByComparingTo("342.00");
+    assertThat(res.getRejectionReason()).isNull();
+    assertThat(res.getId()).isEqualTo(100L);
 
-    @Test
-    void validationFailure_propagates_andNothingElseIsTouched() {
-        BookingRequest req = request(EMAIL, 1);
-        doThrow(new BookingValidationException("seat_numbers", "bad")).when(validator).validate(req);
+    ArgumentCaptor<Booking> saved = ArgumentCaptor.forClass(Booking.class);
+    verify(bookingRepository).save(saved.capture());
+    assertThat(saved.getValue().getUserId()).isEqualTo(USER_ID);
+    assertThat(saved.getValue().getBookedOn()).isEqualTo(LocalDate.now());
+  }
 
-        assertThrows(BookingValidationException.class, () -> service.createBooking(req));
+  @Test
+  void eventToday_isStillBookable_withoutDiscounts() {
+    givenEvent(futureEvent(0));
 
-        verifyNoInteractions(eventRepository, bookingSeatRepository);
-        verify(bookingRepository, never()).save(any());
-    }
+    BookingResponse res =
+        service.createBooking(TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 1), USER_ID);
 
-    @Test
-    void unknownEvent_throwsEventNotFound_withSpecMessage_andSavesNothing() {
-        when(eventRepository.findByIdForUpdate(1L)).thenReturn(Optional.empty());
+    assertThat(res.getStatus()).isEqualTo("CONFIRMED");
+    assertThat(res.getPricePerSeat()).isEqualByComparingTo("100.00");
+  }
 
-        EventNotFoundException ex = assertThrows(EventNotFoundException.class,
-                () -> service.createBooking(request(EMAIL, 1)));
+  @Test
+  void eventInThePast_isRejectedAndStillSaved() {
+    givenEvent(futureEvent(-1));
 
-        assertEquals("Event with id 1 not found", ex.getMessage());
-        verify(bookingRepository, never()).save(any());
-    }
+    BookingResponse res =
+        service.createBooking(TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 1), USER_ID);
 
-    @Test
-    void seatAboveTotalSeats_is400_namingTheSmallestOffendingSeat() {
-        stubEvent(20, "1000", LocalDate.now().plusDays(10));
+    assertThat(res.getStatus()).isEqualTo("REJECTED");
+    assertThat(res.getRejectionReason()).isEqualTo("Event is already over");
+    assertThat(res.getPricePerSeat()).isNull();
+    assertThat(res.getTotalAmount()).isNull();
+    verify(bookingRepository).save(any(Booking.class));
+  }
 
-        BookingValidationException ex = assertThrows(BookingValidationException.class,
-                () -> service.createBooking(request(EMAIL, 25, 21, 3)));
+  @Test
+  void seatsAlreadyTaken_areRejectedWithTheirNumbers() {
+    givenEvent(futureEvent(10));
+    doReturn(List.of(2, 3))
+        .when(seatRepository)
+        .findConfirmedSeatNumbers(anyLong(), anyCollection());
 
-        assertEquals(1, ex.getDetails().size());
-        assertEquals("seat_numbers", ex.getDetails().get(0).field());
-        assertEquals("seat 21 does not exist for this event", ex.getDetails().get(0).message());
-        verify(bookingRepository, never()).save(any());
-    }
+    BookingResponse res =
+        service.createBooking(
+            TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 1, 2, 3), USER_ID);
 
-    @Test
-    void seatEqualToTotalSeats_isAllowed() {
-        stubEvent(20, "1000", LocalDate.now().plusDays(10));
+    assertThat(res.getStatus()).isEqualTo("REJECTED");
+    assertThat(res.getRejectionReason()).isEqualTo("Seats already booked: 2, 3");
+  }
 
-        BookingResponse r = service.createBooking(request(EMAIL, 20));
+  @Test
+  void customerOverTheSixSeatLimit_isRejected() {
+    givenEvent(futureEvent(10));
+    doReturn(4L).when(bookingRepository).countConfirmedSeatsForCustomer(anyLong(), anyString());
 
-        assertEquals("CONFIRMED", r.getStatus());
-    }
+    BookingResponse res =
+        service.createBooking(
+            TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 1, 2, 3), USER_ID);
 
-    // ---------- step 3: rules, first failure decides ----------
+    assertThat(res.getStatus()).isEqualTo("REJECTED");
+    assertThat(res.getRejectionReason())
+        .isEqualTo("Customer already holds the maximum seats for this event");
+  }
 
-    @Test
-    void pastEvent_isRejected_withDateReason_andRuleChecksStop() {
-        stubEvent(200, "1500", LocalDate.now().minusDays(1));
+  @Test
+  void customerReachingExactlySixSeats_isConfirmed() {
+    givenEvent(futureEvent(10));
+    doReturn(4L).when(bookingRepository).countConfirmedSeatsForCustomer(anyLong(), anyString());
 
-        BookingResponse r = service.createBooking(request(EMAIL, 12, 13));
+    BookingResponse res =
+        service.createBooking(TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 1, 2), USER_ID);
 
-        assertEquals("REJECTED", r.getStatus());
-        assertEquals("Event is already over", r.getRejectionReason());
-        assertNull(r.getPricePerSeat());
-        assertNull(r.getTotalAmount());
-        assertEquals(2, r.getSeats());
-        // later rules never ran
-        verifyNoInteractions(bookingSeatRepository);
-        verify(bookingRepository, never()).countConfirmedSeatsForCustomer(any(), any());
-    }
+    assertThat(res.getStatus()).isEqualTo("CONFIRMED");
+  }
 
-    @Test
-    void rejectedBooking_isSaved_withItsSeatRows_markedRejected() {
-        stubEvent(200, "1500", LocalDate.now().minusDays(1));
+  @Test
+  void seatBeyondTheVenue_isAValidationError_andNothingIsSaved() {
+    givenEvent(TestData.event(EVENT_ID, 10, LocalDate.now().plusDays(10), "100.00", 2L));
 
-        service.createBooking(request(EMAIL, 13, 12));
+    assertThatThrownBy(
+            () ->
+                service.createBooking(
+                    TestData.bookingRequest(EVENT_ID, "John Doe", EMAIL, 11), USER_ID))
+        .isInstanceOfSatisfying(
+            BookingValidationException.class,
+            ex ->
+                assertThat(ex.getDetails())
+                    .singleElement()
+                    .satisfies(
+                        d -> {
+                          assertThat(d.field()).isEqualTo("seat_numbers");
+                          assertThat(d.message())
+                              .isEqualTo("seat 11 does not exist for this event");
+                        }));
+    verify(bookingRepository, never()).save(any());
+  }
 
-        Booking saved = savedBooking();
-        assertEquals("REJECTED", saved.getStatus());
-        assertEquals(2, saved.getBookingSeats().size());
-        assertTrue(saved.getBookingSeats().stream().allMatch(s -> "REJECTED".equals(s.getStatus())));
-    }
+  @Test
+  void unknownEvent_isNotFound() {
+    when(eventRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
-    @Test
-    void eventToday_isStillBookable() {
-        stubEvent(200, "1500", LocalDate.now());
+    assertThatThrownBy(
+            () ->
+                service.createBooking(TestData.bookingRequest(99L, "John Doe", EMAIL, 1), USER_ID))
+        .isInstanceOf(EventNotFoundException.class)
+        .hasMessage("Event with id 99 not found");
+  }
 
-        BookingResponse r = service.createBooking(request(EMAIL, 1));
+  @Test
+  void invalidBody_failsBeforeTouchingTheDatabase() {
+    BookingRequest bad = new BookingRequest();
 
-        assertEquals("CONFIRMED", r.getStatus());
-        assertEquals(new BigDecimal("1500.00"), r.getPricePerSeat());   // no discounts today
-    }
+    assertThatThrownBy(() -> service.createBooking(bad, USER_ID))
+        .isInstanceOf(BookingValidationException.class);
+    verifyNoInteractions(eventRepository);
+  }
 
-    @Test
-    void takenSeats_areListedInAscendingOrder_andCustomerRuleIsSkipped() {
-        stubEvent(200, "1500", LocalDate.now().plusDays(10));
-        when(bookingSeatRepository.findConfirmedSeatNumbers(eq(1L), anyCollection())).thenReturn(List.of(12, 14));
+  // ------------------------------------------------------------------ getBooking
 
-        BookingResponse r = service.createBooking(request(EMAIL, 16, 14, 12));
+  private Booking existingBooking(Long ownerId) {
+    Booking b = TestData.booking(5L, EVENT_ID, ownerId, "CONFIRMED", 2);
+    when(bookingRepository.findById(5L)).thenReturn(Optional.of(b));
+    return b;
+  }
 
-        assertEquals("REJECTED", r.getStatus());
-        assertEquals("Seats already booked: 12, 14", r.getRejectionReason());
-        assertNull(r.getPricePerSeat());
-        assertNull(r.getTotalAmount());
-        verify(bookingRepository, never()).countConfirmedSeatsForCustomer(any(), any());
-    }
+  private static AuthUser customer(long id) {
+    return new AuthUser(id, "c@test.com", Role.CUSTOMER);
+  }
 
-    @Test
-    void availabilityQuery_receivesTheSeatsSorted() {
-        stubEvent(200, "1500", LocalDate.now().plusDays(10));
+  private static AuthUser organiser(long id) {
+    return new AuthUser(id, "o@test.com", Role.ORGANISER);
+  }
 
-        service.createBooking(request(EMAIL, 16, 12, 14));
+  @Test
+  void owner_canReadTheirBooking() {
+    existingBooking(USER_ID);
 
-        verify(bookingSeatRepository).findConfirmedSeatNumbers(eq(1L), seatsCaptor.capture());
-        assertEquals(List.of(12, 14, 16), List.copyOf(seatsCaptor.getValue()));
-    }
+    assertThat(service.getBooking(5L, customer(USER_ID)).getEventId()).isEqualTo(EVENT_ID);
+  }
 
-    @ParameterizedTest(name = "already holds {0}, asks {1} -> confirmed={2}")
-    @CsvSource({
-            "0, 6, true",
-            "4, 2, true",    // exactly 6 in total
-            "5, 1, true",
-            "4, 3, false",   // 7 in total
-            "6, 1, false",
-            "3, 4, false"
-    })
-    void perCustomerLimit(long held, int asks, boolean confirmed) {
-        stubEvent(200, "1000", LocalDate.now().plusDays(10));
-        when(bookingRepository.countConfirmedSeatsForCustomer(1L, EMAIL)).thenReturn(held);
-        Integer[] seats = IntStream.rangeClosed(1, asks).boxed().toArray(Integer[]::new);
+  @Test
+  void anotherCustomer_getsNotFound() {
+    existingBooking(USER_ID);
 
-        BookingResponse r = service.createBooking(request(EMAIL, seats));
+    assertThatThrownBy(() -> service.getBooking(5L, customer(77L)))
+        .isInstanceOf(BookingNotFoundException.class)
+        .hasMessage("Booking not found with id 5");
+  }
 
-        if (confirmed) {
-            assertEquals("CONFIRMED", r.getStatus());
-            assertNull(r.getRejectionReason());
-        } else {
-            assertEquals("REJECTED", r.getStatus());
-            assertEquals(MAX_REASON, r.getRejectionReason());
-        }
-    }
+  @Test
+  void organiserOfTheEvent_canReadAnyBookingOnIt() {
+    existingBooking(USER_ID);
+    when(eventRepository.findById(EVENT_ID))
+        .thenReturn(
+            Optional.of(TestData.event(EVENT_ID, 100, LocalDate.now().plusDays(5), "10.00", 2L)));
 
-    // ---------- steps 4-6: pricing and saving ----------
+    assertThat(service.getBooking(5L, organiser(2L))).isNotNull();
+  }
 
-    @Test
-    void confirmedBooking_workedExample_1282_50_and_5130_00() {
-        Event event = stubEvent(200, "1500", LocalDate.now().plusDays(71));
+  @Test
+  void organiserOfAnotherEvent_getsNotFound() {
+    existingBooking(USER_ID);
+    when(eventRepository.findById(EVENT_ID))
+        .thenReturn(
+            Optional.of(TestData.event(EVENT_ID, 100, LocalDate.now().plusDays(5), "10.00", 2L)));
 
-        BookingResponse r = service.createBooking(request(EMAIL, 15, 12, 14, 13));
+    assertThatThrownBy(() -> service.getBooking(5L, organiser(3L)))
+        .isInstanceOf(BookingNotFoundException.class);
+  }
 
-        assertEquals("CONFIRMED", r.getStatus());
-        assertNull(r.getRejectionReason());
-        assertEquals(new BigDecimal("1282.50"), r.getPricePerSeat());
-        assertEquals(new BigDecimal("5130.00"), r.getTotalAmount());
-        assertEquals(4, r.getSeats());
-        assertEquals(List.of(12, 13, 14, 15), r.getSeatNumbers());
-        assertEquals(LocalDate.now(), r.getBookedOn());
-        assertEquals(event.getId(), r.getEventId());
-        assertEquals("Priya Raman", r.getCustomerName());
-        assertEquals(EMAIL, r.getCustomerEmail());
-    }
+  @Test
+  void organiser_whenTheEventNoLongerExists_getsNotFound() {
+    existingBooking(USER_ID);
+    when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.empty());
 
-    @Test
-    void confirmedBooking_noDiscounts_1000x2() {
-        stubEvent(200, "1000", LocalDate.now().plusDays(10));
+    assertThatThrownBy(() -> service.getBooking(5L, organiser(2L)))
+        .isInstanceOf(BookingNotFoundException.class);
+  }
 
-        BookingResponse r = service.createBooking(request(EMAIL, 1, 2));
+  @Test
+  void organiserWhoOwnsTheBookingItself_canRead() {
+    existingBooking(3L);
 
-        assertEquals(new BigDecimal("1000.00"), r.getPricePerSeat());
-        assertEquals(new BigDecimal("2000.00"), r.getTotalAmount());
-    }
+    assertThat(service.getBooking(5L, organiser(3L))).isNotNull();
+  }
 
-    @Test
-    void confirmedBooking_savesOneSeatRowPerSeat_markedConfirmed() {
-        stubEvent(200, "1000", LocalDate.now().plusDays(10));
+  @Test
+  void legacyBookingWithoutOwner_isHiddenFromCustomers_butVisibleToTheEventOrganiser() {
+    existingBooking(null);
+    when(eventRepository.findById(EVENT_ID))
+        .thenReturn(
+            Optional.of(TestData.event(EVENT_ID, 100, LocalDate.now().plusDays(5), "10.00", 2L)));
 
-        service.createBooking(request(EMAIL, 3, 1, 2));
+    assertThatThrownBy(() -> service.getBooking(5L, customer(USER_ID)))
+        .isInstanceOf(BookingNotFoundException.class);
+    assertThat(service.getBooking(5L, organiser(2L))).isNotNull();
+  }
 
-        Booking saved = savedBooking();
-        assertEquals("CONFIRMED", saved.getStatus());
-        assertEquals(3, saved.getSeats());
-        assertEquals(List.of(1, 2, 3), saved.getBookingSeats().stream().map(BookingSeat::getSeatNumber).toList());
-        assertTrue(saved.getBookingSeats().stream().allMatch(s -> "CONFIRMED".equals(s.getStatus())));
-        assertTrue(saved.getBookingSeats().stream().allMatch(s -> Long.valueOf(1L).equals(s.getEventId())));
-    }
+  @Test
+  void missingBooking_isNotFound() {
+    when(bookingRepository.findById(404L)).thenReturn(Optional.empty());
 
-    // ---------- API 4 ----------
-
-    @Test
-    void getBooking_notFound_namesTheId() {
-        when(bookingRepository.findById(42L)).thenReturn(Optional.empty());
-
-        BookingNotFoundException ex = assertThrows(BookingNotFoundException.class, () -> service.getBooking(42L));
-
-        assertTrue(ex.getMessage().contains("42"), ex.getMessage());
-    }
-
-    @Test
-    void getBooking_found_returnsSortedSeatNumbers() {
-        Booking b = new Booking();
-        b.setEventId(1L);
-        b.setCustomerName("Priya Raman");
-        b.setCustomerEmail(EMAIL);
-        b.setSeats(2);
-        b.setStatus("CONFIRMED");
-        b.setPricePerSeat(new BigDecimal("1000.00"));
-        b.setTotalAmount(new BigDecimal("2000.00"));
-        b.setBookedOn(LocalDate.now());
-        b.addSeat(15);
-        b.addSeat(12);
-        when(bookingRepository.findById(5L)).thenReturn(Optional.of(b));
-
-        BookingResponse r = service.getBooking(5L);
-
-        assertEquals(List.of(12, 15), r.getSeatNumbers());
-        assertEquals("CONFIRMED", r.getStatus());
-        assertEquals(new BigDecimal("2000.00"), r.getTotalAmount());
-    }
+    assertThatThrownBy(() -> service.getBooking(404L, customer(1L)))
+        .isInstanceOf(BookingNotFoundException.class)
+        .hasMessage("Booking not found with id 404");
+  }
 }

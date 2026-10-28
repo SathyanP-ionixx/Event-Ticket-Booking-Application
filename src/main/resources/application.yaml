@@ -2,9 +2,9 @@ spring:
   application:
     name: Event_Ticket_Booking
   datasource:
-    url: jdbc:postgresql://localhost:5432/postgres
-    username: postgres
-    password: postgres
+    url: jdbc:postgresql://localhost:5432/Event_Ticket_Booking_DB
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -33,3 +33,9 @@ logging:
   # file only: switch the console appender off (property needs Spring Boot 3.5+, ignored on older versions)
   threshold:
     console:off
+
+app:
+  jwt:
+    # >= 32 bytes. Set JWT_SECRET in every real environment; the fallback is for local development only.
+    secret: ${JWT_SECRET_BASE64}
+    expiration-minutes: 60
