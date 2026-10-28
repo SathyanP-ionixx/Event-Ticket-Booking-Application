@@ -3,9 +3,17 @@ databaseChangeLog:
       file: 001-create-event-table.yaml
       relativeToChangelogFile: true
   - include:
-      file: booking-002-create-bookings.yaml
+      file: 002-create-bookings.yaml
       relativeToChangelogFile: true
   - include:
-      file: booking-003-create-booking-seats.yaml
+      file: 003-create-booking-seats.yaml
       relativeToChangelogFile: true
-
+  - include:
+      file: 004-create-users.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 005-bookings-add-user-id.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: 006-events-add-organiser-id.yaml
+      relativeToChangelogFile: true

@@ -1,0 +1,28 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-events-add-organiser-id
+      author: auth-team
+      changes:
+        # nullable: events created before this change have no owner
+        - addColumn:
+            tableName: events
+            columns:
+              - column:
+                  name: organiser_id
+                  type: bigint
+        - addForeignKeyConstraint:
+            baseTableName: events
+            baseColumnNames: organiser_id
+            constraintName: fk_events_organiser
+            referencedTableName: users
+            referencedColumnNames: id
+        - createIndex:
+            indexName: idx_events_organiser_id
+            tableName: events
+            columns:
+              - column:
+                  name: organiser_id
+      rollback:
+        - dropColumn:
+            tableName: events
+            columnName: organiser_id

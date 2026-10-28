@@ -1,0 +1,22 @@
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: Event_Ticket_BookingDB-container
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-Event_Ticket_Booking_DB}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
