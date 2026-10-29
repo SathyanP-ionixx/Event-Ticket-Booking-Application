@@ -2,13 +2,18 @@ package com.ionixx.Event_Ticket_Booking.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ionixx.Event_Ticket_Booking.dto.BookingResponse;
 import com.ionixx.Event_Ticket_Booking.dto.EventSummaryResponse;
+import com.ionixx.Event_Ticket_Booking.dto.PagedResponse;
 import com.ionixx.Event_Ticket_Booking.dto.SeatMapResponse;
 import com.ionixx.Event_Ticket_Booking.entity.Booking;
 import com.ionixx.Event_Ticket_Booking.entity.Event;
@@ -21,6 +26,7 @@ import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
 import com.ionixx.Event_Ticket_Booking.security.AuthUser;
 import com.ionixx.Event_Ticket_Booking.support.TestData;
+import com.ionixx.Event_Ticket_Booking.util.PageParams;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -28,6 +34,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 class EventReportServiceTest {
@@ -49,48 +60,110 @@ class EventReportServiceTest {
     return e;
   }
 
-  // ------------------------------------------------------------------ listBookings
+  // ------------------------------------------------------------------ listBookings (paged)
+
+  private static final PageParams FIRST_PAGE = new PageParams(0, 20);
+
+  private static Page<Booking> pageOf(Pageable pageable, long total, Booking... items) {
+    return new PageImpl<>(List.of(items), pageable, total);
+  }
 
   @Test
-  void listBookings_withoutStatus_returnsAll() {
+  void listBookings_withoutStatus_returnsAPagedEnvelope() {
     givenEvent(10, 2L);
-    when(bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(EVENT_ID))
+    when(bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            eq(EVENT_ID), any(Pageable.class)))
         .thenReturn(
-            List.of(
+            pageOf(
+                PageRequest.of(0, 20),
+                45,
                 TestData.booking(1L, EVENT_ID, 5L, "CONFIRMED", 2),
                 TestData.booking(2L, EVENT_ID, 6L, "REJECTED", 1)));
 
-    List<BookingResponse> result = service.listBookings(EVENT_ID, null, OWNER);
+    PagedResponse<BookingResponse> result = service.listBookings(EVENT_ID, null, FIRST_PAGE, OWNER);
 
-    assertThat(result)
+    assertThat(result.content())
         .extracting(BookingResponse::getStatus)
         .containsExactly("CONFIRMED", "REJECTED");
+    assertThat(result.page()).isZero();
+    assertThat(result.size()).isEqualTo(20);
+    assertThat(result.totalElements()).isEqualTo(45);
+    assertThat(result.totalPages()).isEqualTo(3);
+  }
+
+  @Test
+  void listBookings_passesThePageAndSizeToTheRepository_unsorted() {
+    givenEvent(10, 2L);
+    when(bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            eq(EVENT_ID), any(Pageable.class)))
+        .thenReturn(
+            pageOf(PageRequest.of(2, 5), 12, TestData.booking(1L, EVENT_ID, 5L, "CONFIRMED", 1)));
+
+    PagedResponse<BookingResponse> result =
+        service.listBookings(EVENT_ID, null, new PageParams(2, 5), OWNER);
+
+    ArgumentCaptor<Pageable> captured = ArgumentCaptor.forClass(Pageable.class);
+    verify(bookingRepository)
+        .findByEventIdOrderByBookedOnDescIdDesc(eq(EVENT_ID), captured.capture());
+    assertThat(captured.getValue().getPageNumber()).isEqualTo(2);
+    assertThat(captured.getValue().getPageSize()).isEqualTo(5);
+    assertThat(captured.getValue().getSort().isUnsorted())
+        .as("order comes from the query name")
+        .isTrue();
+    assertThat(result.page()).isEqualTo(2);
+    assertThat(result.size()).isEqualTo(5);
+    assertThat(result.totalPages()).isEqualTo(3);
   }
 
   @Test
   void listBookings_withStatus_usesTheFilteredQuery() {
     givenEvent(10, 2L);
-    Booking rejected = TestData.booking(2L, EVENT_ID, 6L, "REJECTED", 1);
-    when(bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(EVENT_ID, "REJECTED"))
-        .thenReturn(List.of(rejected));
+    when(bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(
+            eq(EVENT_ID), eq("REJECTED"), any(Pageable.class)))
+        .thenReturn(
+            pageOf(PageRequest.of(0, 20), 1, TestData.booking(2L, EVENT_ID, 6L, "REJECTED", 1)));
 
-    assertThat(service.listBookings(EVENT_ID, "REJECTED", OWNER)).hasSize(1);
-    assertThat(service.listBookings(EVENT_ID, "REJECTED", OWNER).get(0).getStatus())
-        .isEqualTo("REJECTED");
+    PagedResponse<BookingResponse> result =
+        service.listBookings(EVENT_ID, "REJECTED", FIRST_PAGE, OWNER);
+
+    assertThat(result.content()).extracting(BookingResponse::getStatus).containsExactly("REJECTED");
+    assertThat(result.totalElements()).isEqualTo(1);
+    verify(bookingRepository, never())
+        .findByEventIdOrderByBookedOnDescIdDesc(anyLong(), any(Pageable.class));
   }
 
   @Test
   void listBookings_acceptsConfirmed() {
     givenEvent(10, 2L);
-    when(bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(EVENT_ID, "CONFIRMED"))
-        .thenReturn(List.of());
+    when(bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(
+            eq(EVENT_ID), eq("CONFIRMED"), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
-    assertThat(service.listBookings(EVENT_ID, "CONFIRMED", OWNER)).isEmpty();
+    PagedResponse<BookingResponse> result =
+        service.listBookings(EVENT_ID, "CONFIRMED", FIRST_PAGE, OWNER);
+
+    assertThat(result.content()).isEmpty();
+    assertThat(result.totalPages()).isZero();
+  }
+
+  @Test
+  void listBookings_pageBeyondTheEnd_isAnEmptyPage_withTheRealTotals() {
+    givenEvent(10, 2L);
+    when(bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            eq(EVENT_ID), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of(), PageRequest.of(9, 20), 45));
+
+    PagedResponse<BookingResponse> result =
+        service.listBookings(EVENT_ID, null, new PageParams(9, 20), OWNER);
+
+    assertThat(result.content()).isEmpty();
+    assertThat(result.totalElements()).isEqualTo(45);
+    assertThat(result.totalPages()).isEqualTo(3);
   }
 
   @Test
   void listBookings_invalidStatus_isRejectedBeforeAnyLookup() {
-    assertThatThrownBy(() -> service.listBookings(EVENT_ID, "confirmed", OWNER))
+    assertThatThrownBy(() -> service.listBookings(EVENT_ID, "confirmed", FIRST_PAGE, OWNER))
         .isInstanceOf(BookingValidationException.class);
     verifyNoInteractions(eventRepository, bookingRepository);
   }
@@ -99,23 +172,24 @@ class EventReportServiceTest {
   void listBookings_unknownEvent_isNotFound() {
     when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.empty());
 
-    assertThatThrownBy(() -> service.listBookings(EVENT_ID, null, OWNER))
+    assertThatThrownBy(() -> service.listBookings(EVENT_ID, null, FIRST_PAGE, OWNER))
         .isInstanceOf(EventNotFoundException.class);
   }
 
   @Test
-  void listBookings_anotherOrganiser_isForbidden() {
+  void listBookings_anotherOrganiser_isForbidden_andNothingIsQueried() {
     givenEvent(10, 2L);
 
-    assertThatThrownBy(() -> service.listBookings(EVENT_ID, null, OTHER))
+    assertThatThrownBy(() -> service.listBookings(EVENT_ID, null, FIRST_PAGE, OTHER))
         .isInstanceOf(AccessDeniedException.class);
+    verifyNoInteractions(bookingRepository);
   }
 
   @Test
   void listBookings_eventWithoutOwner_isForbiddenToEveryone() {
     givenEvent(10, null);
 
-    assertThatThrownBy(() -> service.listBookings(EVENT_ID, null, OWNER))
+    assertThatThrownBy(() -> service.listBookings(EVENT_ID, null, FIRST_PAGE, OWNER))
         .isInstanceOf(AccessDeniedException.class);
   }
 

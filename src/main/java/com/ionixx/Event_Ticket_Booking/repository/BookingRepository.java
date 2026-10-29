@@ -2,8 +2,8 @@ package com.ionixx.Event_Ticket_Booking.repository;
 
 import com.ionixx.Event_Ticket_Booking.entity.Booking;
 import java.math.BigDecimal;
-import java.util.List;
-import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,11 +19,16 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
            """)
   long countConfirmedSeatsForCustomer(@Param("eventId") Long eventId, @Param("email") String email);
 
-  @EntityGraph(attributePaths = "bookingSeats")
-  List<Booking> findByEventIdOrderByBookedOnDescIdDesc(Long eventId);
+  // ---- paged booking lists ----
+  // Newest first; id is the unique tie-breaker, so the order (and therefore every page) is stable.
+  // No @EntityGraph: a collection fetch join cannot be paged in SQL (Hibernate would page in
+  // memory).
+  // The seats come from Booking.bookingSeats' @BatchSize: one extra query per page.
 
-  @EntityGraph(attributePaths = "bookingSeats")
-  List<Booking> findByEventIdAndStatusOrderByBookedOnDescIdDesc(Long eventId, String status);
+  Page<Booking> findByEventIdOrderByBookedOnDescIdDesc(Long eventId, Pageable pageable);
+
+  Page<Booking> findByEventIdAndStatusOrderByBookedOnDescIdDesc(
+      Long eventId, String status, Pageable pageable);
 
   // ---- API 7: aggregates done in SQL ----
 

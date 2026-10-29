@@ -6,6 +6,7 @@ import com.ionixx.Event_Ticket_Booking.security.AuthUser;
 import com.ionixx.Event_Ticket_Booking.service.EventReportService;
 import com.ionixx.Event_Ticket_Booking.service.EventService;
 import com.ionixx.Event_Ticket_Booking.util.IDparser;
+import com.ionixx.Event_Ticket_Booking.util.PageParams;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.slf4j.MDC;
@@ -37,6 +38,15 @@ public class EventController {
     return created;
   }
 
+  //  ---------------------Get All Events-----------------------
+  @GetMapping("/getallevents")
+  @ResponseStatus(HttpStatus.OK)
+  public List<EventResponse> getAllEvents(@AuthenticationPrincipal AuthUser user) {
+
+    MDC.put(RequestIdFilter.MDC_USER_ID, String.valueOf(user.id()));
+    return service.fetchAllEvents();
+  }
+
   // ------------------- Get an event-------------------------
   @GetMapping("/{id}")
   public EventResponse getById(@PathVariable("id") String rawId) {
@@ -47,16 +57,30 @@ public class EventController {
   }
 
   // --------------------List bookings for an event--------------------------
+  //  @GetMapping("/{id}/bookings")
+  //  public List<BookingResponse> listBookings(
+  //      @PathVariable("id") String rawId,
+  //      @RequestParam(name = "status", required = false) String status,
+  //      @AuthenticationPrincipal AuthUser user) {
+  //    long id = IDparser.parsePositiveId(rawId);
+  //
+  //    MDC.put(RequestIdFilter.MDC_EVENT_ID, String.valueOf(id));
+  //
+  //    return reportService.listBookings(id, status, user);
+  //  }
   @GetMapping("/{id}/bookings")
-  public List<BookingResponse> listBookings(
+  public PagedResponse<BookingResponse> listBookings(
       @PathVariable("id") String rawId,
       @RequestParam(name = "status", required = false) String status,
+      @RequestParam(name = "page", required = false) String page,
+      @RequestParam(name = "size", required = false) String size,
       @AuthenticationPrincipal AuthUser user) {
     long id = IDparser.parsePositiveId(rawId);
+    PageParams params = PageParams.parse(page, size);
 
     MDC.put(RequestIdFilter.MDC_EVENT_ID, String.valueOf(id));
 
-    return reportService.listBookings(id, status, user);
+    return reportService.listBookings(id, status, params, user);
   }
 
   // -----------------------Seat availability-------------------------------

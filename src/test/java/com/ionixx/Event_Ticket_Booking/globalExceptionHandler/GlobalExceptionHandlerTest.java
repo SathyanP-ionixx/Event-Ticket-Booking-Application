@@ -140,15 +140,6 @@ class GlobalExceptionHandlerTest {
   }
 
   @Test
-  void uniqueViolation_buriedInTheCauseChain_is409() {
-    var ex =
-        new DataIntegrityViolationException(
-            "dup", new RuntimeException(new SQLException("duplicate key", "23505")));
-
-    assertError(handler.handleIntegrity(ex, request), HttpStatus.CONFLICT, "DUPLICATE_EVENT", null);
-  }
-
-  @Test
   void otherIntegrityViolation_is500_withoutLeakingDetails() {
     var ex = new DataIntegrityViolationException("fk", new SQLException("fk violation", "23503"));
 

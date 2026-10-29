@@ -2,6 +2,7 @@ package com.ionixx.Event_Ticket_Booking.service;
 
 import com.ionixx.Event_Ticket_Booking.dto.BookingResponse;
 import com.ionixx.Event_Ticket_Booking.dto.EventSummaryResponse;
+import com.ionixx.Event_Ticket_Booking.dto.PagedResponse;
 import com.ionixx.Event_Ticket_Booking.dto.SeatMapResponse;
 import com.ionixx.Event_Ticket_Booking.entity.Booking;
 import com.ionixx.Event_Ticket_Booking.entity.Event;
@@ -12,12 +13,15 @@ import com.ionixx.Event_Ticket_Booking.repository.BookingRepository;
 import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
 import com.ionixx.Event_Ticket_Booking.security.AuthUser;
+import com.ionixx.Event_Ticket_Booking.util.PageParams;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,21 +51,27 @@ public class EventReportService {
   //  List bookings for an event
 
   /**
+   * One page of the event's bookings, newest first. The mapping to responses happens inside this
+   * transaction: it is what reads each booking's seats.
+   *
    * @param status null for all bookings, otherwise exactly CONFIRMED or REJECTED (else 400).
    */
   @Transactional(readOnly = true)
-  public List<BookingResponse> listBookings(long eventId, String status, AuthUser caller) {
+  public PagedResponse<BookingResponse> listBookings(
+      long eventId, String status, PageParams params, AuthUser caller) {
     if (status != null && !CONFIRMED.equals(status) && !REJECTED.equals(status)) {
       throw new BookingValidationException("status", "must be CONFIRMED or REJECTED");
     }
-    Event event = requireEvent(eventId); // was: requireEvent(eventId);
+    Event event = requireEvent(eventId);
     requireOwner(event, caller);
 
-    List<Booking> bookings =
+    Pageable pageable = params.toPageable();
+    Page<Booking> bookings =
         (status == null)
-            ? bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(eventId)
-            : bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(eventId, status);
-    return bookings.stream().map(BookingResponse::from).toList();
+            ? bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(eventId, pageable)
+            : bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(
+                eventId, status, pageable);
+    return PagedResponse.from(bookings.map(BookingResponse::from));
   }
 
   // ---------- API 6 ----------
@@ -121,7 +131,7 @@ public class EventReportService {
         bandFor(occupancy));
   }
 
-  /** Band is taken from the occupancy_pct the client sees (already rounded to 1 decimal). */
+  //   Band is taken from the occupancy_pct the client sees (already rounded to 1 decimal).
   static DemandBand bandFor(BigDecimal occupancyPct) {
     if (occupancyPct.compareTo(LOW_BELOW) < 0) {
       return DemandBand.LOW;

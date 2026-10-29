@@ -1,41 +1,39 @@
+server:
+  port: ${SERVER_PORT:8080}
+
 spring:
   application:
     name: Event_Ticket_Booking
   datasource:
-    url: jdbc:postgresql://localhost:5432/Event_Ticket_Booking_DB
+    hikari:
+      connection-init-sql: "SET lock_timeout = '5s'"
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD}
+    password: ${DB_PASSWORD:postgres}
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
   liquibase:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
+
 management:
-    endpoints:
-      health:
-      show-details: always
-      web:
-        exposure:
-          include: health
+  endpoints:
+    web:
+      exposure:
+        include: health
+
 logging:
   file:
-    name: logs/application.log
-
-  # JSON, one object per line, in the "logstash" layout built into Spring Boot
-  # (@timestamp, @version, message, logger_name, thread_name, level, level_value, then MDC fields)
+    name: ${LOG_FILE:logs/application.log}
   structured:
     json:
       exclude: thread_name,level_value
     format:
       file: logstash
 
-  # file only: switch the console appender off (property needs Spring Boot 3.5+, ignored on older versions)
-  threshold:
-    console:off
-
 app:
   jwt:
-    # >= 32 bytes. Set JWT_SECRET in every real environment; the fallback is for local development only.
-    secret: ${JWT_SECRET_BASE64}
-    expiration-minutes: 60
+    # No default on purpose: the app refuses to start without JWT_SECRET (needs at least 32 bytes)
+    secret: ${JWT_SECRET}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}

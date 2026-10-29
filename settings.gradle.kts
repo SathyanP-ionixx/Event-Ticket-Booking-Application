@@ -1,1 +1,1 @@
-rootProject.name = 'Event_Ticket_Booking'
+rootProject.name = ("Event_Ticket_Booking")

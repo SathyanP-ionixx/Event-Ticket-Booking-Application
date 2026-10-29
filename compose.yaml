@@ -1,22 +1,43 @@
-
 services:
-  postgres:
+  postgresDB:
     image: postgres:16
-    container_name: Event_Ticket_BookingDB-container
-    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-Event_Ticket_Booking_DB}
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      postgresDB:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: ${SERVER_PORT}
+      DB_URL: jdbc:postgresql://postgresDB:5432/${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-60}
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75 -Duser.timezone=${APP_TIMEZONE:-UTC}"
+    ports:
+      - "${HOST_PORT}:${SERVER_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${SERVER_PORT}/actuator/health || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 40s
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  pgdata:

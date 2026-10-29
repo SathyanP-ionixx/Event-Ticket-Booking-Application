@@ -288,7 +288,7 @@ class BookingFlowTest extends AbstractIntegrationTest {
   }
 
   @Test
-  void listBookings_newestFirst_andFilterableByStatus() throws Exception {
+  void listBookings_isAPagedEnvelope_newestFirst_andFilterableByStatus() throws Exception {
     Account organiser = organiser();
     long eventId = createEvent(organiser, 10);
     long confirmed = bookingId(bookOk(customer(), eventId, "a@example.com", 1));
@@ -296,17 +296,113 @@ class BookingFlowTest extends AbstractIntegrationTest {
 
     mvc.perform(as(get("/api/events/" + eventId + "/bookings"), organiser))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.length()").value(2))
-        .andExpect(jsonPath("$[0].id").value(rejected))
-        .andExpect(jsonPath("$[1].id").value(confirmed));
+        .andExpect(jsonPath("$.content.length()").value(2))
+        .andExpect(jsonPath("$.content[0].id").value(rejected))
+        .andExpect(jsonPath("$.content[1].id").value(confirmed))
+        .andExpect(jsonPath("$.content[1].seat_numbers[0]").value(1))
+        .andExpect(jsonPath("$.page").value(0))
+        .andExpect(jsonPath("$.size").value(20))
+        .andExpect(jsonPath("$.total_elements").value(2))
+        .andExpect(jsonPath("$.total_pages").value(1));
 
     mvc.perform(as(get("/api/events/" + eventId + "/bookings?status=CONFIRMED"), organiser))
-        .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].id").value(confirmed));
+        .andExpect(jsonPath("$.content.length()").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(confirmed))
+        .andExpect(jsonPath("$.total_elements").value(1));
 
     mvc.perform(as(get("/api/events/" + eventId + "/bookings?status=REJECTED"), organiser))
-        .andExpect(jsonPath("$.length()").value(1))
-        .andExpect(jsonPath("$[0].id").value(rejected));
+        .andExpect(jsonPath("$.content.length()").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(rejected));
+  }
+
+  @Test
+  void listBookings_walksThroughThePages() throws Exception {
+    Account organiser = organiser();
+    long eventId = createEvent(organiser, 20);
+    Account customer = customer();
+    long[] ids = new long[5];
+    for (int i = 0; i < 5; i++) {
+      ids[i] = bookingId(bookOk(customer, eventId, "page" + i + "@example.com", i + 1));
+    }
+    // newest first: [4, 3] [2, 1] [0]
+
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?page=0&size=2"), organiser))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content.length()").value(2))
+        .andExpect(jsonPath("$.content[0].id").value(ids[4]))
+        .andExpect(jsonPath("$.content[1].id").value(ids[3]))
+        .andExpect(jsonPath("$.page").value(0))
+        .andExpect(jsonPath("$.size").value(2))
+        .andExpect(jsonPath("$.total_elements").value(5))
+        .andExpect(jsonPath("$.total_pages").value(3));
+
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?page=1&size=2"), organiser))
+        .andExpect(jsonPath("$.content[0].id").value(ids[2]))
+        .andExpect(jsonPath("$.content[1].id").value(ids[1]))
+        .andExpect(jsonPath("$.page").value(1));
+
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?page=2&size=2"), organiser))
+        .andExpect(jsonPath("$.content.length()").value(1))
+        .andExpect(jsonPath("$.content[0].id").value(ids[0]));
+
+    // beyond the last page: still 200, empty content, real totals
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?page=3&size=2"), organiser))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content.length()").value(0))
+        .andExpect(jsonPath("$.total_elements").value(5))
+        .andExpect(jsonPath("$.total_pages").value(3));
+  }
+
+  @Test
+  void listBookings_rejectsBadPagingParameters() throws Exception {
+    Account organiser = organiser();
+    long eventId = createEvent(organiser, 10);
+    String[][] bad = {
+      {"page=-1", "page"},
+      {"page=abc", "page"},
+      {"size=0", "size"},
+      {"size=101", "size"},
+      {"size=x", "size"}
+    };
+
+    for (String[] q : bad) {
+      mvc.perform(as(get("/api/events/" + eventId + "/bookings?" + q[0]), organiser))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"))
+          .andExpect(jsonPath("$.details[0].field").value(q[1]));
+    }
+  }
+
+  @Test
+  void listBookings_reportsEveryBadPagingParameterAtOnce() throws Exception {
+    Account organiser = organiser();
+    long eventId = createEvent(organiser, 10);
+
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?page=-1&size=500"), organiser))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.details.length()").value(2))
+        .andExpect(jsonPath("$.details[0].field").value("page"))
+        .andExpect(jsonPath("$.details[1].field").value("size"));
+  }
+
+  @Test
+  void listBookings_acceptsTheMaximumPageSize() throws Exception {
+    Account organiser = organiser();
+    long eventId = createEvent(organiser, 10);
+
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?size=100"), organiser))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.size").value(100))
+        .andExpect(jsonPath("$.content.length()").value(0))
+        .andExpect(jsonPath("$.total_pages").value(0));
+  }
+
+  @Test
+  void listBookings_pagingNeverBypassesOwnership() throws Exception {
+    long eventId = createEvent(organiser(), 10);
+
+    mvc.perform(as(get("/api/events/" + eventId + "/bookings?page=0&size=1"), organiser()))
+        .andExpect(status().isForbidden());
   }
 
   @Test
