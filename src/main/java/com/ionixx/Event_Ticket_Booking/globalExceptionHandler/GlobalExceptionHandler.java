@@ -8,6 +8,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.slf4j.MDC;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -30,6 +31,7 @@ public class GlobalExceptionHandler {
 
   private static final String DUPLICATE_MESSAGE = "Event with same name and date is not allowed";
   private static final String UNIQUE_VIOLATION_SQL_STATE = "23505"; // PostgreSQL, H2, ...
+  private static final String SEAT_INDEX = "uq_booking_seats_confirmed";
 
   // ---- 400 VALIDATION_FAILED (events: bean validation) ----
   @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -42,6 +44,13 @@ public class GlobalExceptionHandler {
             .toList();
     RequestIdFilter.recordError(request, "Validation failed: " + describe(details));
     return validationFailed(details);
+  }
+
+  @ExceptionHandler(NoEventsFoundException.class)
+  public ResponseEntity<ErrorResponse> handleNoEventFound(
+      NoEventsFoundException ex, HttpServletRequest request) {
+    RequestIdFilter.recordError(request, ex.getMessage());
+    return notFound(ex.getMessage());
   }
 
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -146,19 +155,6 @@ public class GlobalExceptionHandler {
     return duplicateResponse();
   }
 
-  // concurrent insert that slipped past the duplicate check, or any other DB constraint failure
-  @ExceptionHandler(DataIntegrityViolationException.class)
-  public ResponseEntity<ErrorResponse> handleIntegrity(
-      DataIntegrityViolationException ex, HttpServletRequest request) {
-    if (isUniqueViolation(ex)) {
-      RequestIdFilter.recordError(request, DUPLICATE_MESSAGE);
-      return duplicateResponse();
-    }
-    // not a duplicate: validation should have caught it, so this is a bug -> 500, never leak
-    // details
-    return internalError(ex, request);
-  }
-
   /**
    * Everything else: framework exceptions (404 route, 405, 415, ...) keep their own status,
    * anything unexpected becomes a generic 500 INTERNAL_ERROR and is logged at ERROR with its stack
@@ -178,6 +174,23 @@ public class GlobalExceptionHandler {
       return ResponseEntity.status(status)
           .headers(springError.getHeaders())
           .body(ErrorResponse.of(code, message));
+    }
+    return internalError(ex, request);
+  }
+
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  public ResponseEntity<ErrorResponse> handleIntegrity(
+      DataIntegrityViolationException ex, HttpServletRequest request) {
+    if (isUniqueViolation(ex)) {
+      String cause = String.valueOf(NestedExceptionUtils.getMostSpecificCause(ex).getMessage());
+      if (cause.contains(SEAT_INDEX)) {
+        String message = "One or more seats were just booked by someone else";
+        RequestIdFilter.recordError(request, message);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ErrorResponse.of("SEAT_ALREADY_BOOKED", message));
+      }
+      RequestIdFilter.recordError(request, DUPLICATE_MESSAGE);
+      return duplicateResponse();
     }
     return internalError(ex, request);
   }

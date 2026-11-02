@@ -50,6 +50,9 @@ abstract class AbstractIntegrationTest {
     registry.add("spring.datasource.username", POSTGRES::getUsername);
     registry.add("spring.datasource.password", POSTGRES::getPassword);
     registry.add("app.jwt.secret", () -> JWT_SECRET);
+    registry.add(
+        "spring.jpa.properties.hibernate.generate_statistics",
+        () -> "true"); // lets a test count SQL statements
   }
 
   @Autowired WebApplicationContext context;

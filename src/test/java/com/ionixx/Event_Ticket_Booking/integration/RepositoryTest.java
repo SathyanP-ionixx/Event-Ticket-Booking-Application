@@ -12,13 +12,19 @@ import com.ionixx.Event_Ticket_Booking.repository.BookingRepository;
 import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
 import com.ionixx.Event_Ticket_Booking.repository.UserRepository;
+import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -33,6 +39,7 @@ class RepositoryTest extends AbstractIntegrationTest {
   @Autowired BookingSeatRepository bookingSeatRepository;
   @Autowired UserRepository userRepository;
   @Autowired PlatformTransactionManager transactionManager;
+  @Autowired EntityManagerFactory entityManagerFactory;
 
   private Event newEvent(int seats) {
     Event e = new Event();
@@ -127,26 +134,104 @@ class RepositoryTest extends AbstractIntegrationTest {
   }
 
   @Test
-  void bookingLists_areNewestFirst_andCanBeFilteredByStatus() {
+  void bookingPages_areNewestFirst_stable_andFilterable() {
     Event event = newEvent(50);
-    Booking first = saveBooking(event, "a@x.com", "CONFIRMED", "40.00", 1);
-    Booking second = saveBooking(event, "b@x.com", "REJECTED", null, 1);
+    List<Long> ids = new ArrayList<>(); // oldest first
+    for (int i = 1; i <= 5; i++) {
+      boolean rejected = i == 2;
+      ids.add(
+          saveBooking(
+                  event,
+                  "p" + i + "@x.com",
+                  rejected ? "REJECTED" : "CONFIRMED",
+                  rejected ? null : "40.00",
+                  i)
+              .getId());
+    }
+    // same booked_on for all: the order falls back to id descending -> 5, 4, 3, 2, 1
 
-    assertThat(bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(event.getId()))
+    Page<Booking> first =
+        bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            event.getId(), PageRequest.of(0, 2));
+    Page<Booking> second =
+        bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            event.getId(), PageRequest.of(1, 2));
+    Page<Booking> third =
+        bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            event.getId(), PageRequest.of(2, 2));
+    Page<Booking> beyond =
+        bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            event.getId(), PageRequest.of(3, 2));
+
+    assertThat(first.getContent())
         .extracting(Booking::getId)
-        .containsExactly(second.getId(), first.getId());
-    assertThat(
-            bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(
-                event.getId(), "CONFIRMED"))
+        .containsExactly(ids.get(4), ids.get(3));
+    assertThat(second.getContent())
         .extracting(Booking::getId)
-        .containsExactly(first.getId());
-    // seats come with the booking (entity graph), no lazy-loading error outside a transaction
-    assertThat(
-            bookingRepository
-                .findByEventIdOrderByBookedOnDescIdDesc(event.getId())
-                .get(0)
-                .getBookingSeats())
-        .hasSize(1);
+        .containsExactly(ids.get(2), ids.get(1));
+    assertThat(third.getContent()).extracting(Booking::getId).containsExactly(ids.get(0));
+    assertThat(beyond.getContent()).isEmpty();
+    assertThat(first.getTotalElements()).isEqualTo(5);
+    assertThat(first.getTotalPages()).isEqualTo(3);
+    assertThat(beyond.getTotalElements()).as("totals stay correct past the last page").isEqualTo(5);
+
+    Page<Booking> confirmed =
+        bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(
+            event.getId(), "CONFIRMED", PageRequest.of(0, 3));
+    Page<Booking> rejectedOnly =
+        bookingRepository.findByEventIdAndStatusOrderByBookedOnDescIdDesc(
+            event.getId(), "REJECTED", PageRequest.of(0, 3));
+
+    assertThat(confirmed.getContent())
+        .extracting(Booking::getId)
+        .containsExactly(ids.get(4), ids.get(3), ids.get(2));
+    assertThat(confirmed.getTotalElements()).isEqualTo(4);
+    assertThat(confirmed.getTotalPages()).isEqualTo(2);
+    assertThat(rejectedOnly.getContent()).extracting(Booking::getId).containsExactly(ids.get(1));
+  }
+
+  @Test
+  void bookingPages_onlyContainTheRequestedEvent() {
+    Event event = newEvent(50);
+    Event other = newEvent(50);
+    saveBooking(event, "a@x.com", "CONFIRMED", "40.00", 1);
+    saveBooking(other, "b@x.com", "CONFIRMED", "40.00", 1);
+
+    Page<Booking> page =
+        bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+            event.getId(), PageRequest.of(0, 10));
+
+    assertThat(page.getTotalElements()).isEqualTo(1);
+    assertThat(page.getContent()).extracting(Booking::getEventId).containsOnly(event.getId());
+  }
+
+  @Test
+  void bookingSeats_areLoadedInBatches_notOneQueryPerBooking() {
+    Event event = newEvent(30);
+    for (int i = 1; i <= 12; i++) {
+      saveBooking(event, "b" + i + "@x.com", "CONFIRMED", "40.00", i);
+    }
+    Statistics stats = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    assertThat(stats.isStatisticsEnabled())
+        .as("generate_statistics must be on for this test")
+        .isTrue();
+    TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+    long before = stats.getPrepareStatementCount();
+    Integer seatCount =
+        tx.execute(
+            status -> {
+              Page<Booking> page =
+                  bookingRepository.findByEventIdOrderByBookedOnDescIdDesc(
+                      event.getId(), PageRequest.of(0, 12));
+              return page.getContent().stream().mapToInt(b -> b.getBookingSeats().size()).sum();
+            });
+    long statements = stats.getPrepareStatementCount() - before;
+
+    assertThat(seatCount).isEqualTo(12);
+    // page + count + ONE batched seat load; a missing @BatchSize would need 12 seat loads (14
+    // statements)
+    assertThat(statements).isLessThanOrEqualTo(4);
   }
 
   // ------------------------------------------------------------------ events

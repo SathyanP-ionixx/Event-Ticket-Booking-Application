@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import org.hibernate.annotations.BatchSize;
 
 @Entity
 @Table(name = "bookings")
@@ -45,6 +46,12 @@ public class Booking {
   @Column(name = "booked_on", nullable = false)
   private LocalDate bookedOn;
 
+  /**
+   * Seats of up to 100 bookings (the maximum page size) are loaded with ONE query. A fetch join
+   * cannot be paged in the database, so the booking list pages plain bookings and relies on this
+   * for the seats.
+   */
+  @BatchSize(size = 100)
   @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("seatNumber ASC")
   private List<BookingSeat> bookingSeats = new ArrayList<>();

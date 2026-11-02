@@ -8,6 +8,10 @@ plugins {
 
 group = "com.ionixx"
 version = "0.0.1-SNAPSHOT"
+
+tasks.bootJar {
+	archiveFileName.set("app.jar")
+}
 spotless {
 	java {
 		googleJavaFormat()

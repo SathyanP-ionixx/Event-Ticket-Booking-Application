@@ -6,8 +6,10 @@ import com.ionixx.Event_Ticket_Booking.entity.Event;
 import com.ionixx.Event_Ticket_Booking.enums.Category;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.DuplicateEventException;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.EventNotFoundException;
+import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.NoEventsFoundException;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Locale;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,5 +54,19 @@ public class EventService {
         .findById(id)
         .map(EventResponse::from)
         .orElseThrow(() -> new EventNotFoundException(id));
+  }
+
+  @Transactional(readOnly = true)
+  public List<EventResponse> fetchAllEvents() {
+    try {
+      List<Event> events = repository.findAll();
+      List<EventResponse> eventResponses = events.stream().map(EventResponse::from).toList();
+      if (eventResponses.isEmpty()) {
+        throw new NoEventsFoundException("Currently there is no Events Available");
+      }
+      return eventResponses;
+    } catch (RuntimeException e) {
+      throw new RuntimeException("Failed to Fetch Events");
+    }
   }
 }
