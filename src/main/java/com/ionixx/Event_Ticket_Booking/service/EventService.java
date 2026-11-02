@@ -4,13 +4,15 @@ import com.ionixx.Event_Ticket_Booking.dto.EventRequest;
 import com.ionixx.Event_Ticket_Booking.dto.EventResponse;
 import com.ionixx.Event_Ticket_Booking.entity.Event;
 import com.ionixx.Event_Ticket_Booking.enums.Category;
-import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.DuplicateEventException;
-import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.EventNotFoundException;
-import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.NoEventsFoundException;
+import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.*;
+import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
+
+import com.ionixx.Event_Ticket_Booking.security.AuthUser;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,9 +21,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class EventService {
 
   private final EventRepository repository;
+  private final BookingSeatRepository bookingSeatRepository;
 
-  public EventService(EventRepository repository) {
+  public EventService(EventRepository repository, BookingSeatRepository bookingSeatRepository) {
     this.repository = repository;
+    this.bookingSeatRepository = bookingSeatRepository;
   }
 
   @Transactional
@@ -56,17 +60,48 @@ public class EventService {
         .orElseThrow(() -> new EventNotFoundException(id));
   }
 
-  @Transactional(readOnly = true)
-  public List<EventResponse> fetchAllEvents() {
-    try {
-      List<Event> events = repository.findAll();
-      List<EventResponse> eventResponses = events.stream().map(EventResponse::from).toList();
-      if (eventResponses.isEmpty()) {
-        throw new NoEventsFoundException("Currently there is no Events Available");
-      }
-      return eventResponses;
-    } catch (RuntimeException e) {
-      throw new RuntimeException("Failed to Fetch Events");
+    @Transactional(readOnly = true)
+    public List<EventResponse> fetchAllFutureEvents() {
+        return null;
+    }
+
+  @Transactional
+  public EventResponse update(long id, EventRequest req, AuthUser caller) {
+    Event event = repository.findByIdForUpdate(id).orElseThrow(() -> new EventNotFoundException(id));
+    requireOwner(event, caller);
+
+    if (event.getEventDate().isBefore(LocalDate.now())) {      // same definition of "over" as booking
+      throw new EventAlreadyOverException();
+    }
+
+    LocalDate date = LocalDate.parse(req.getEventDate());
+
+    Integer highestBooked = bookingSeatRepository.findMaxConfirmedSeatNumber(id);
+    if (highestBooked != null && req.getTotalSeats() < highestBooked) {
+      throw new BookingValidationException("total_seats",
+              "must be at least " + highestBooked + " (seat " + highestBooked + " is already booked)");
+    }
+
+    // friendly fast path; the unique constraint is still the real guarantee (see saveAndFlush below)
+    repository.findByNameAndEventDate(req.getName(), date)
+            .filter(other -> !other.getId().equals(id))
+            .ifPresent(other -> {
+              throw new DuplicateEventException(other.getId());
+            });
+
+    event.setName(req.getName());
+    event.setCategory(Category.valueOf(req.getCategory().toUpperCase(Locale.ROOT)));
+    event.setBasePrice(req.getBasePrice());
+    event.setTotalSeats(req.getTotalSeats());
+    event.setEventDate(date);
+    event.setVenue(req.getVenue());
+    // flush so a concurrent duplicate fails here and is mapped to 409 by the handler
+    return EventResponse.from(repository.saveAndFlush(event));
+  }
+
+  private void requireOwner(Event event, AuthUser caller) {
+    if (event.getOrganiserId() == null || !event.getOrganiserId().equals(caller.id())) {
+      throw new AccessDeniedException("Not the organiser of this event");
     }
   }
 }

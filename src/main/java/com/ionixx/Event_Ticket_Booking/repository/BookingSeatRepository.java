@@ -9,23 +9,29 @@ import org.springframework.data.repository.query.Param;
 
 public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> {
 
-  @Query(
-      """
+  @Query("""
            select s.seatNumber from BookingSeat s
            where s.eventId = :eventId
              and s.status = 'CONFIRMED'
              and s.seatNumber in :seats
            order by s.seatNumber
            """)
-  List<Integer> findConfirmedSeatNumbers(
-      @Param("eventId") Long eventId, @Param("seats") Collection<Integer> seats);
+  List<Integer> findConfirmedSeatNumbers(@Param("eventId") Long eventId,
+                                         @Param("seats") Collection<Integer> seats);
 
-  @Query(
-      """
+  @Query("""
            select s.seatNumber from BookingSeat s
            where s.eventId = :eventId
              and s.status = 'CONFIRMED'
            order by s.seatNumber
            """)
   List<Integer> findAllConfirmedSeatNumbers(@Param("eventId") Long eventId);
+
+  /** Highest confirmed seat number of the event, or null when nothing is booked. Guards shrinking an event. */
+  @Query("""
+           select max(s.seatNumber) from BookingSeat s
+           where s.eventId = :eventId
+             and s.status = 'CONFIRMED'
+           """)
+  Integer findMaxConfirmedSeatNumber(@Param("eventId") Long eventId);
 }

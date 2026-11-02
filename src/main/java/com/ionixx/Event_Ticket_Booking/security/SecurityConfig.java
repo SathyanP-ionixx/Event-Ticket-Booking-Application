@@ -44,11 +44,12 @@ public class SecurityConfig {
                         "/swagger-ui.html",
                         "/v3/api-docs/**")
                     .permitAll()
-                    // only an ORGANISER creates events and sees reports
+                    // only an ORGANISER creates events and sees report
+                    .requestMatchers(HttpMethod.PUT, "/api/events/*").hasRole("ORGANISER")
                     .requestMatchers(HttpMethod.POST, "/api/events")
                     .hasRole("ORGANISER")
                     .requestMatchers(
-                        HttpMethod.GET, "/api/events/*/bookings", "/api/events/*/summary")
+                        HttpMethod.GET, "/api/events/*/bookings", "/api/events/*/summary","/api/events/getallevents")
                     .hasRole("ORGANISER")
 
                     // everything else: any logged-in user (view event / seats, book, view own
