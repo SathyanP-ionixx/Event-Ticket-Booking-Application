@@ -7,11 +7,10 @@ import com.ionixx.Event_Ticket_Booking.enums.Category;
 import com.ionixx.Event_Ticket_Booking.globalExceptionHandler.*;
 import com.ionixx.Event_Ticket_Booking.repository.BookingSeatRepository;
 import com.ionixx.Event_Ticket_Booking.repository.EventRepository;
+import com.ionixx.Event_Ticket_Booking.security.AuthUser;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
-
-import com.ionixx.Event_Ticket_Booking.security.AuthUser;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,17 +59,18 @@ public class EventService {
         .orElseThrow(() -> new EventNotFoundException(id));
   }
 
-    @Transactional(readOnly = true)
-    public List<EventResponse> fetchAllFutureEvents() {
-        return null;
-    }
+  @Transactional(readOnly = true)
+  public List<EventResponse> fetchAllFutureEvents() {
+    return null;
+  }
 
   @Transactional
   public EventResponse update(long id, EventRequest req, AuthUser caller) {
-    Event event = repository.findByIdForUpdate(id).orElseThrow(() -> new EventNotFoundException(id));
+    Event event =
+        repository.findByIdForUpdate(id).orElseThrow(() -> new EventNotFoundException(id));
     requireOwner(event, caller);
 
-    if (event.getEventDate().isBefore(LocalDate.now())) {      // same definition of "over" as booking
+    if (event.getEventDate().isBefore(LocalDate.now())) { // same definition of "over" as booking
       throw new EventAlreadyOverException();
     }
 
@@ -78,14 +78,18 @@ public class EventService {
 
     Integer highestBooked = bookingSeatRepository.findMaxConfirmedSeatNumber(id);
     if (highestBooked != null && req.getTotalSeats() < highestBooked) {
-      throw new BookingValidationException("total_seats",
-              "must be at least " + highestBooked + " (seat " + highestBooked + " is already booked)");
+      throw new BookingValidationException(
+          "total_seats",
+          "must be at least " + highestBooked + " (seat " + highestBooked + " is already booked)");
     }
 
-    // friendly fast path; the unique constraint is still the real guarantee (see saveAndFlush below)
-    repository.findByNameAndEventDate(req.getName(), date)
-            .filter(other -> !other.getId().equals(id))
-            .ifPresent(other -> {
+    // friendly fast path; the unique constraint is still the real guarantee (see saveAndFlush
+    // below)
+    repository
+        .findByNameAndEventDate(req.getName(), date)
+        .filter(other -> !other.getId().equals(id))
+        .ifPresent(
+            other -> {
               throw new DuplicateEventException(other.getId());
             });
 

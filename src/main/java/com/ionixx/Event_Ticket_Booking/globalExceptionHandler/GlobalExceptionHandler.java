@@ -194,13 +194,14 @@ public class GlobalExceptionHandler {
     }
     return internalError(ex, request);
   }
+
   // ---- 409 EVENT_ALREADY_OVER (event update) ----
   @ExceptionHandler(EventAlreadyOverException.class)
-  public ResponseEntity<ErrorResponse> handleEventOver(EventAlreadyOverException ex,
-                                                       HttpServletRequest request) {
+  public ResponseEntity<ErrorResponse> handleEventOver(
+      EventAlreadyOverException ex, HttpServletRequest request) {
     RequestIdFilter.recordError(request, ex.getMessage());
     return ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(ErrorResponse.of("EVENT_ALREADY_OVER", ex.getMessage()));
+        .body(ErrorResponse.of("EVENT_ALREADY_OVER", ex.getMessage()));
   }
 
   // ---- helpers ----

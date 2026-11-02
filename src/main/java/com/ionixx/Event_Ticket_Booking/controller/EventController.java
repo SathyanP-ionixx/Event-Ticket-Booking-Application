@@ -101,11 +101,13 @@ public class EventController {
     MDC.put(RequestIdFilter.MDC_EVENT_ID, String.valueOf(id));
     return reportService.getSummary(id, user);
   }
-  //------------------- Update an event (full replace) -------------------------
+
+  // ------------------- Update an event (full replace) -------------------------
   @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
-  public EventResponse update(@PathVariable("id") String rawId,
-                              @Valid @RequestBody EventRequest request,
-                              @AuthenticationPrincipal AuthUser user) {
+  public EventResponse update(
+      @PathVariable("id") String rawId,
+      @Valid @RequestBody EventRequest request,
+      @AuthenticationPrincipal AuthUser user) {
     long id = IDparser.parsePositiveId(rawId);
     MDC.put(RequestIdFilter.MDC_EVENT_ID, String.valueOf(id));
     return service.update(id, request, user);
